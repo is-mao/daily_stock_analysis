@@ -144,6 +144,26 @@ class Config:
         return cls._instance
     
     @classmethod
+    def _safe_int(cls, value: Optional[str], default: int) -> int:
+        """安全的整数转换"""
+        if not value or not value.strip():
+            return default
+        try:
+            return int(value.strip())
+        except (ValueError, TypeError):
+            return default
+    
+    @classmethod
+    def _safe_float(cls, value: Optional[str], default: float) -> float:
+        """安全的浮点数转换"""
+        if not value or not value.strip():
+            return default
+        try:
+            return float(value.strip())
+        except (ValueError, TypeError):
+            return default
+    
+    @classmethod
     def _load_from_env(cls) -> 'Config':
         """
         从 .env 文件加载配置
@@ -188,9 +208,9 @@ class Config:
             gemini_api_key=os.getenv('GEMINI_API_KEY'),
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview'),
             gemini_model_fallback=os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-2.5-flash'),
-            gemini_request_delay=float(os.getenv('GEMINI_REQUEST_DELAY', '2.0')),
-            gemini_max_retries=int(os.getenv('GEMINI_MAX_RETRIES', '5')),
-            gemini_retry_delay=float(os.getenv('GEMINI_RETRY_DELAY', '5.0')),
+            gemini_request_delay=cls._safe_float(os.getenv('GEMINI_REQUEST_DELAY'), 2.0),
+            gemini_max_retries=cls._safe_int(os.getenv('GEMINI_MAX_RETRIES'), 5),
+            gemini_retry_delay=cls._safe_float(os.getenv('GEMINI_RETRY_DELAY'), 5.0),
             openai_api_key=os.getenv('OPENAI_API_KEY'),
             openai_base_url=os.getenv('OPENAI_BASE_URL'),
             openai_model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
@@ -209,19 +229,19 @@ class Config:
             custom_webhook_urls=[u.strip() for u in os.getenv('CUSTOM_WEBHOOK_URLS', '').split(',') if u.strip()],
             custom_webhook_bearer_token=os.getenv('CUSTOM_WEBHOOK_BEARER_TOKEN'),
             single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
-            feishu_max_bytes=int(os.getenv('FEISHU_MAX_BYTES', '20000')),
-            wechat_max_bytes=int(os.getenv('WECHAT_MAX_BYTES', '4000')),
+            feishu_max_bytes=cls._safe_int(os.getenv('FEISHU_MAX_BYTES'), 20000),
+            wechat_max_bytes=cls._safe_int(os.getenv('WECHAT_MAX_BYTES'), 4000),
             database_path=os.getenv('DATABASE_PATH', './data/stock_analysis.db'),
             log_dir=os.getenv('LOG_DIR', './logs'),
             log_level=os.getenv('LOG_LEVEL', 'INFO'),
-            max_workers=int(os.getenv('MAX_WORKERS', '3')),
+            max_workers=cls._safe_int(os.getenv('MAX_WORKERS'), 3),
             debug=os.getenv('DEBUG', 'false').lower() == 'true',
             schedule_enabled=os.getenv('SCHEDULE_ENABLED', 'false').lower() == 'true',
             schedule_time=os.getenv('SCHEDULE_TIME', '18:00'),
             market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
-            webui_port=int(os.getenv('WEBUI_PORT', '8000')),
+            webui_port=cls._safe_int(os.getenv('WEBUI_PORT'), 8000),
         )
     
     @classmethod

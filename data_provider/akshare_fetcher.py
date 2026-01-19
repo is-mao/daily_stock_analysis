@@ -915,6 +915,123 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[API错误] 获取 {stock_code} 筹码分布失败: {e}")
             return None
     
+    def get_stock_basic(self) -> Optional[pd.DataFrame]:
+        """
+        获取A股基本信息
+        
+        数据来源：ak.stock_zh_a_spot_em()
+        包含：股票代码、名称、市值、市盈率等基本信息
+        
+        Returns:
+            包含股票基本信息的DataFrame，获取失败返回None
+        """
+        import akshare as ak
+        
+        try:
+            # 防封禁策略
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            
+            logger.info("[API调用] ak.stock_zh_a_spot_em() 获取A股基本信息...")
+            import time as _time
+            api_start = _time.time()
+            
+            df = ak.stock_zh_a_spot_em()
+            
+            api_elapsed = _time.time() - api_start
+            logger.info(f"[API返回] ak.stock_zh_a_spot_em 成功: 返回 {len(df)} 只股票, 耗时 {api_elapsed:.2f}s")
+            
+            if df.empty:
+                return None
+            
+            # 标准化列名和数据
+            def safe_float(val, default=0.0):
+                try:
+                    if pd.isna(val):
+                        return default
+                    return float(val)
+                except:
+                    return default
+            
+            # 构建标准化的基本信息DataFrame
+            basic_info = pd.DataFrame({
+                'code': df['代码'],
+                'name': df['名称'],
+                'market_cap': df['总市值'].apply(lambda x: safe_float(x)),
+                'pe_ratio': df['市盈率-动态'].apply(lambda x: safe_float(x)),
+                'pb_ratio': df['市净率'].apply(lambda x: safe_float(x)),
+                'turnover_rate': df['换手率'].apply(lambda x: safe_float(x)),
+                'volume_ratio': df['量比'].apply(lambda x: safe_float(x)),
+                'status': '正常'  # 默认都是正常状态
+            })
+            
+            return basic_info
+            
+        except Exception as e:
+            logger.error(f"[API错误] 获取A股基本信息失败: {e}")
+            return None
+    
+    def get_stock_name(self, stock_code: str) -> Optional[str]:
+        """
+        获取股票名称
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            股票名称，获取失败返回None
+        """
+        try:
+            # 先尝试从实时行情获取
+            quote = self.get_realtime_quote(stock_code)
+            if quote and quote.name:
+                return quote.name
+            
+            # 如果实时行情获取失败，从基本信息获取
+            basic_info = self.get_stock_basic()
+            if basic_info is not None:
+                row = basic_info[basic_info['code'] == stock_code]
+                if not row.empty:
+                    return row.iloc[0]['name']
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"[API错误] 获取股票 {stock_code} 名称失败: {e}")
+            return None
+    
+    def get_fundamental_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取基本面数据
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            包含基本面指标的字典
+        """
+        try:
+            # 从实时行情获取估值指标
+            quote = self.get_realtime_quote(stock_code)
+            if not quote:
+                return {}
+            
+            # 构建基本面数据字典
+            fundamental_data = {
+                'pe_ratio': quote.pe_ratio,
+                'pb_ratio': quote.pb_ratio,
+                'total_mv': quote.total_mv,
+                'circ_mv': quote.circ_mv,
+                'roe': 0.0,  # 暂时无法获取ROE，设为默认值
+                'revenue_growth': 0.0,  # 暂时无法获取营收增长率，设为默认值
+            }
+            
+            return fundamental_data
+            
+        except Exception as e:
+            logger.error(f"[API错误] 获取股票 {stock_code} 基本面数据失败: {e}")
+            return {}
+
     def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
         """
         获取增强数据（历史K线 + 实时行情 + 筹码分布）

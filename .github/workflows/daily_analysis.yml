@@ -17,6 +17,7 @@ on:
           - full          # 完整分析（股票+大盘）
           - market-only   # 仅大盘复盘
           - stocks-only   # 仅股票分析
+          - selection-only # 仅股票精选
 
 jobs:
   analyze:
@@ -105,6 +106,8 @@ jobs:
             python main.py --market-review
           elif [ "$MODE" = "stocks-only" ]; then
             python main.py --no-market-review
+          elif [ "$MODE" = "selection-only" ]; then
+            python main.py --stock-selection
           else
             python main.py
           fi

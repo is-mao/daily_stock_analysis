@@ -48,6 +48,7 @@ from data_provider.akshare_fetcher import AkshareFetcher, RealtimeQuote, ChipDis
 from analyzer import GeminiAnalyzer, AnalysisResult, STOCK_NAME_MAP
 from notification import NotificationService, NotificationChannel, send_daily_report
 from search_service import SearchService, SearchResponse
+from stock_selector import StockSelector, StockScore, RecommendLevel, SelectionStrategy
 from stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from market_analyzer import MarketAnalyzer
 
@@ -662,6 +663,8 @@ def parse_arguments() -> argparse.Namespace:
   python main.py --single-notify    # 启用单股推送模式（每分析完一只立即推送）
   python main.py --schedule         # 启用定时任务模式
   python main.py --market-review    # 仅运行大盘复盘
+  python main.py --stock-selection  # 仅运行每日股票精选
+  python main.py --stock-selection --selection-count 30 --selection-strategy trend_following  # 自定义精选参数
         '''
     )
     
@@ -726,7 +729,110 @@ def parse_arguments() -> argparse.Namespace:
         help='启动本地配置 WebUI'
     )
     
+    parser.add_argument(
+        '--stock-selection',
+        action='store_true',
+        help='运行每日股票精选功能'
+    )
+    
+    parser.add_argument(
+        '--selection-count',
+        type=int,
+        default=20,
+        help='股票精选数量（默认20只）'
+    )
+    
+    parser.add_argument(
+        '--selection-strategy',
+        type=str,
+        choices=['comprehensive', 'trend_following', 'value_hunting', 'momentum', 'reversal'],
+        default='comprehensive',
+        help='股票精选策略（默认综合策略）'
+    )
+    
     return parser.parse_args()
+
+
+def run_stock_selection(
+    config: Config,
+    args: argparse.Namespace
+) -> Optional[str]:
+    """
+    执行每日股票精选
+    
+    Args:
+        config: 配置对象
+        args: 命令行参数
+    
+    Returns:
+        精选报告文本
+    """
+    logger.info("开始执行每日股票精选...")
+    
+    try:
+        # 创建股票精选器
+        selector = StockSelector(config=config)
+        
+        # 解析精选策略
+        strategy_map = {
+            'comprehensive': SelectionStrategy.COMPREHENSIVE,
+            'trend_following': SelectionStrategy.TREND_FOLLOWING,
+            'value_hunting': SelectionStrategy.VALUE_HUNTING,
+            'momentum': SelectionStrategy.MOMENTUM,
+            'reversal': SelectionStrategy.REVERSAL
+        }
+        
+        strategy = strategy_map.get(args.selection_strategy, SelectionStrategy.COMPREHENSIVE)
+        max_stocks = args.selection_count
+        
+        logger.info(f"精选策略: {strategy.value}, 最大数量: {max_stocks}")
+        
+        # 执行股票精选
+        selected_stocks = selector.select_daily_stocks(
+            strategy=strategy,
+            max_stocks=max_stocks
+        )
+        
+        if not selected_stocks:
+            logger.warning("未找到符合条件的精选股票")
+            return None
+        
+        # 生成精选报告
+        report = selector.generate_selection_report(selected_stocks)
+        
+        # 保存报告到文件
+        notifier = NotificationService()
+        date_str = datetime.now().strftime('%Y%m%d')
+        report_filename = f"stock_selection_{date_str}.md"
+        filepath = notifier.save_report_to_file(report, report_filename)
+        logger.info(f"股票精选报告已保存: {filepath}")
+        
+        # 推送通知
+        if notifier.is_available() and not args.no_notify:
+            # 添加标题
+            report_content = f"🎯 每日股票精选\n\n{report}"
+            
+            success = notifier.send(report_content)
+            if success:
+                logger.info("股票精选报告推送成功")
+            else:
+                logger.warning("股票精选报告推送失败")
+        
+        # 输出精选结果摘要
+        logger.info("\n===== 股票精选结果摘要 =====")
+        for stock in selected_stocks[:10]:  # 只显示前10只
+            emoji = stock.get_emoji()
+            logger.info(
+                f"{emoji} {stock.name}({stock.code}): {stock.recommend_level.value} | "
+                f"评分 {stock.total_score:.1f} | 价格 ¥{stock.current_price:.2f}"
+            )
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"股票精选执行失败: {e}")
+        logger.exception("详细错误信息:")
+        return None
 
 
 def run_market_review(notifier: NotificationService, analyzer=None, search_service=None) -> Optional[str]:
@@ -915,7 +1021,13 @@ def main() -> int:
             logger.error(f"启动 WebUI 失败: {e}")
 
     try:
-        # 模式1: 仅大盘复盘
+        # 模式1: 仅股票精选
+        if args.stock_selection:
+            logger.info("模式: 仅股票精选")
+            run_stock_selection(config, args)
+            return 0
+        
+        # 模式2: 仅大盘复盘
         if args.market_review:
             logger.info("模式: 仅大盘复盘")
             notifier = NotificationService()
@@ -937,7 +1049,7 @@ def main() -> int:
             run_market_review(notifier, analyzer, search_service)
             return 0
         
-        # 模式2: 定时任务模式
+        # 模式3: 定时任务模式
         if args.schedule or config.schedule_enabled:
             logger.info("模式: 定时任务")
             logger.info(f"每日执行时间: {config.schedule_time}")
@@ -954,7 +1066,7 @@ def main() -> int:
             )
             return 0
         
-        # 模式3: 正常单次运行
+        # 模式4: 正常单次运行
         run_full_analysis(config, args, stock_codes)
         
         logger.info("\n程序执行完成")

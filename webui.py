@@ -40,9 +40,7 @@ def _write_env_text(path: str, text: str) -> None:
         f.write(text)
 
 
-_STOCK_LIST_RE = re.compile(
-    r"^(?P<prefix>\s*STOCK_LIST\s*=\s*)(?P<value>.*?)(?P<suffix>\s*)$"
-)
+_STOCK_LIST_RE = re.compile(r"^(?P<prefix>\s*STOCK_LIST\s*=\s*)(?P<value>.*?)(?P<suffix>\s*)$")
 
 
 def _extract_stock_list(env_text: str) -> str:
@@ -94,7 +92,7 @@ def _set_stock_list(env_text: str, new_value: str) -> str:
 
 def _page(current_value: str, message: str | None = None) -> bytes:
     safe_value = html.escape(current_value)
-    
+
     # Toast notifications
     toast_html = ""
     if message:
@@ -339,6 +337,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def run_server_in_thread(host: str = "127.0.0.1", port: int = 8000):
     """Start the WebUI server in a background thread."""
+
     def serve():
         server = ThreadingHTTPServer((host, port), _Handler)
         logger.info(f"WebUI 已启动: http://{host}:{port}")
@@ -349,7 +348,7 @@ def run_server_in_thread(host: str = "127.0.0.1", port: int = 8000):
             logger.error(f"WebUI 发生错误: {e}")
         finally:
             server.server_close()
-            
+
     t = threading.Thread(target=serve, daemon=True)
     t.start()
     return t

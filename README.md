@@ -180,7 +180,7 @@
 
 > 📖 完整环境变量、定时任务配置请参考 [完整配置指南](docs/full-guide.md)
 
-### 🎯 股票精选功能使用 **[NEW]**
+### 🎯 股票精选功能使用 **[NEW - 优化版]**
 
 ```bash
 # 基础用法：运行股票精选
@@ -192,6 +192,11 @@ python main.py --stock-selection --selection-count 30 --selection-strategy trend
 # GitHub Actions 中选择 "selection-only" 模式
 ```
 
+**🚀 性能优化**：
+- **智能股票池**：只分析前20个热点板块，每个板块前30只股票（最多600只）
+- **运行时间**：从4小时缩短至30-60分钟
+- **精选质量**：聚焦热点板块，提高精选股票的市场关注度
+
 **精选策略**：
 - `comprehensive`：综合策略（默认）
 - `trend_following`：趋势跟踪
@@ -200,6 +205,12 @@ python main.py --stock-selection --selection-count 30 --selection-strategy trend
 - `reversal`：反转策略
 
 **评分体系**：技术面(40%) + 基本面(35%) + 流动性(25%)
+
+**股票池构成**：
+1. 获取概念板块涨跌幅排行
+2. 选择前20个热点板块
+3. 每个板块选择前30只股票（按涨跌幅排序）
+4. 去重后形成最终股票池（通常300-600只）
 
 > 📖 详细使用指南请参考 [股票精选功能指南](STOCK_SELECTION_GUIDE.md)
 

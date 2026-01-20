@@ -93,6 +93,14 @@ class StockScore:
     reason: str = ""
     risk_warning: str = ""
 
+    # 技术分析详情
+    technical_details: Dict[str, Any] = None
+
+    def __post_init__(self):
+        """初始化后处理"""
+        if self.technical_details is None:
+            self.technical_details = {}
+
     def get_emoji(self) -> str:
         """获取推荐级别对应的emoji"""
         emoji_map = {
@@ -857,6 +865,7 @@ class StockSelector:
                 target_price=target_price,
                 reason=reason,
                 risk_warning=risk_warning,
+                technical_details=tech_details,  # 保存技术分析详情
             )
 
             logger.info(f"[{code}] {stock_name} 评估完成: {total_score:.1f}分 ({recommend_level.value})")
@@ -1107,6 +1116,26 @@ class StockSelector:
                         f"   📈 量比: {stock.volume_ratio:.2f} | 换手: {stock.turnover_rate:.2f}% | PE: {stock.pe_ratio:.1f}"
                     )
 
+                # 添加缠论分析简要信息
+                if stock.technical_details and 'chanlun' in stock.technical_details:
+                    chanlun_info = stock.technical_details['chanlun']
+                    if not chanlun_info.get('error'):
+                        chanlun_summary = []
+                        if chanlun_info.get('trend_type'):
+                            trend_emoji = {"上涨": "📈", "下跌": "📉", "盘整": "📊"}.get(
+                                chanlun_info['trend_type'], "📊"
+                            )
+                            chanlun_summary.append(f"{trend_emoji}{chanlun_info['trend_type']}")
+
+                        if chanlun_info.get('buy_points', 0) > 0:
+                            chanlun_summary.append(f"🟢{chanlun_info['buy_points']}买点")
+
+                        if chanlun_info.get('has_beichi') and "下跌" in chanlun_info.get('beichi_type', ''):
+                            chanlun_summary.append("💡下跌背驰")
+
+                        if chanlun_summary:
+                            report_lines.append(f"   🌊 缠论: {' '.join(chanlun_summary)}")
+
                 report_lines.append("")
 
             report_lines.append("---")
@@ -1134,6 +1163,38 @@ class StockSelector:
                 report_lines.append(
                     f"**技术面**: {stock.technical_score:.1f}分 | **基本面**: {stock.fundamental_score:.1f}分 | **流动性**: {stock.liquidity_score:.1f}分"
                 )
+
+                # 缠论分析详情
+                if stock.technical_details and 'chanlun' in stock.technical_details:
+                    chanlun_info = stock.technical_details['chanlun']
+                    if not chanlun_info.get('error'):
+                        report_lines.append(f"**🌊 缠论分析**: {stock.technical_details.get('chanlun_score', 0):.1f}分")
+
+                        # 缠论详情
+                        chanlun_details = []
+                        if chanlun_info.get('trend_type'):
+                            trend_emoji = {"上涨": "📈", "下跌": "📉", "盘整": "📊"}.get(
+                                chanlun_info['trend_type'], "📊"
+                            )
+                            chanlun_details.append(f"{trend_emoji}{chanlun_info['trend_type']}")
+
+                        if chanlun_info.get('zhongshu_count', 0) > 0:
+                            chanlun_details.append(f"中枢{chanlun_info['zhongshu_count']}个")
+
+                        buy_points = chanlun_info.get('buy_points', 0)
+                        sell_points = chanlun_info.get('sell_points', 0)
+                        if buy_points > 0:
+                            chanlun_details.append(f"🟢买点{buy_points}个")
+                        if sell_points > 0:
+                            chanlun_details.append(f"🔴卖点{sell_points}个")
+
+                        if chanlun_info.get('has_beichi'):
+                            beichi_type = chanlun_info.get('beichi_type', '未知')
+                            beichi_emoji = "💡" if "下跌" in beichi_type else "⚠️"
+                            chanlun_details.append(f"{beichi_emoji}{beichi_type}")
+
+                        if chanlun_details:
+                            report_lines.append(f"   *{' | '.join(chanlun_details)}*")
 
                 # 关键指标
                 if stock.volume_ratio > 0:

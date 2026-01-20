@@ -46,6 +46,7 @@ from storage import get_db, DatabaseManager
 from data_provider import DataFetcherManager
 from data_provider.akshare_fetcher import AkshareFetcher, RealtimeQuote, ChipDistribution
 from analyzer import GeminiAnalyzer, AnalysisResult, STOCK_NAME_MAP
+from analyzers.chanlun_analyzer import analyze_stock_chanlun
 from notification import NotificationService, NotificationChannel, send_daily_report
 from search_service import SearchService, SearchResponse
 from stock_selector import StockSelector, StockScore, RecommendLevel, SelectionStrategy
@@ -271,6 +272,29 @@ class StockAnalysisPipeline:
             except Exception as e:
                 logger.warning(f"[{code}] 趋势分析失败: {e}")
 
+            # Step 3.5: 缠论分析
+            chanlun_result = None
+            try:
+                # 获取历史数据进行缠论分析
+                context = self.db.get_analysis_context(code)
+                if context and 'raw_data' in context:
+                    import pandas as pd
+
+                    raw_data = context['raw_data']
+                    if isinstance(raw_data, list) and len(raw_data) > 0:
+                        df = pd.DataFrame(raw_data)
+                        chanlun_result = analyze_stock_chanlun(df)
+                        if chanlun_result:
+                            trend_type = chanlun_result.get('trend_type', '')
+                            trend_str = trend_type.value if hasattr(trend_type, 'value') else str(trend_type)
+                            score = chanlun_result.get('chanlun_score', 50)
+                            buy_points = len(
+                                [p for p in chanlun_result.get('buy_sell_points', []) if '买' in p.type.value]
+                            )
+                            logger.info(f"[{code}] 缠论分析: {trend_str}, " f"评分={score:.1f}, 买点={buy_points}个")
+            except Exception as e:
+                logger.warning(f"[{code}] 缠论分析失败: {e}")
+
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
             news_context = None
             if self.search_service.is_available:
@@ -297,9 +321,9 @@ class StockAnalysisPipeline:
                 logger.warning(f"[{code}] 无法获取分析上下文，跳过分析")
                 return None
 
-            # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
+            # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、缠论分析结果、股票名称）
             enhanced_context = self._enhance_context(
-                context, realtime_quote, chip_data, trend_result, stock_name  # 传入股票名称
+                context, realtime_quote, chip_data, trend_result, chanlun_result, stock_name
             )
 
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
@@ -318,18 +342,20 @@ class StockAnalysisPipeline:
         realtime_quote: Optional[RealtimeQuote],
         chip_data: Optional[ChipDistribution],
         trend_result: Optional[TrendAnalysisResult],
+        chanlun_result: Optional[Dict[str, Any]],
         stock_name: str = "",
     ) -> Dict[str, Any]:
         """
         增强分析上下文
 
-        将实时行情、筹码分布、趋势分析结果、股票名称添加到上下文中
+        将实时行情、筹码分布、趋势分析结果、缠论分析结果、股票名称添加到上下文中
 
         Args:
             context: 原始上下文
             realtime_quote: 实时行情数据
             chip_data: 筹码分布数据
             trend_result: 趋势分析结果
+            chanlun_result: 缠论分析结果
             stock_name: 股票名称
 
         Returns:
@@ -383,6 +409,34 @@ class StockAnalysisPipeline:
                 'signal_score': trend_result.signal_score,
                 'signal_reasons': trend_result.signal_reasons,
                 'risk_factors': trend_result.risk_factors,
+            }
+
+        # 添加缠论分析结果
+        if chanlun_result:
+            trend_type = chanlun_result.get('trend_type', '')
+            trend_str = trend_type.value if hasattr(trend_type, 'value') else str(trend_type)
+
+            buy_sell_points = chanlun_result.get('buy_sell_points', [])
+            buy_points = [p for p in buy_sell_points if '买' in p.type.value]
+            sell_points = [p for p in buy_sell_points if '卖' in p.type.value]
+
+            beichi_analysis = chanlun_result.get('beichi_analysis', {})
+
+            enhanced['chanlun_analysis'] = {
+                'trend_type': trend_str,
+                'chanlun_score': chanlun_result.get('chanlun_score', 50),
+                'fenxing_count': len(chanlun_result.get('fenxings', [])),
+                'bi_count': len(chanlun_result.get('bis', [])),
+                'zhongshu_count': len(chanlun_result.get('zhongshus', [])),
+                'buy_points_count': len(buy_points),
+                'sell_points_count': len(sell_points),
+                'has_beichi': beichi_analysis.get('has_beichi', False),
+                'beichi_type': beichi_analysis.get('type', '无'),
+                'recent_buy_points': [
+                    {'type': p.type.value, 'price': p.price, 'confidence': p.confidence, 'reason': p.reason}
+                    for p in buy_points[-3:]  # 最近3个买点
+                ],
+                'summary': chanlun_result.get('summary', '缠论分析完成'),
             }
 
         return enhanced

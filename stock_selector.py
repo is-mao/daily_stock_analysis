@@ -764,11 +764,13 @@ class StockSelector:
                 from data_provider.efinance_fetcher import EfinanceFetcher
 
                 efinance_fetcher = EfinanceFetcher()
-                df, source = efinance_fetcher.get_daily_data(code, days=60)
+                df = efinance_fetcher.get_daily_data(code, days=60)
+                source = "EfinanceFetcher"
                 logger.info(f"[{code}] 使用EFinance数据源获取数据")
             elif self.preferred_data_source == 'akshare':
                 # 使用AkShare数据源
-                df, source = self.akshare_fetcher.get_daily_data(code, days=60)
+                df = self.akshare_fetcher.get_daily_data(code, days=60)
+                source = "AkshareFetcher"
                 logger.info(f"[{code}] 使用AkShare数据源获取数据")
             else:
                 # 使用默认的数据源管理器（自动选择）

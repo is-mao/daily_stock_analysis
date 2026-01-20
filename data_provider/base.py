@@ -274,7 +274,7 @@ class DataFetcherManager:
         from .yfinance_fetcher import YfinanceFetcher
 
         self._fetchers = [
-            AkshareFetcher(),   # 最高优先级，默认数据源
+            AkshareFetcher(),  # 最高优先级，默认数据源
             TushareFetcher(),
             BaostockFetcher(),
             YfinanceFetcher(),

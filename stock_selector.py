@@ -123,7 +123,7 @@ class StockSelector:
 
         # 数据源配置
         self.preferred_data_source = 'auto'  # 默认自动选择
-        
+
         # 快速模式配置
         self.fast_mode = fast_mode
         if fast_mode:
@@ -223,13 +223,13 @@ class StockSelector:
 
             # 去重
             unique_stocks = list(set(all_stocks))
-            
+
             # 快速模式进一步限制股票数量
             if self.fast_mode and len(unique_stocks) > 50:
                 # 快速模式最多只分析50只股票
                 unique_stocks = unique_stocks[:50]
                 logger.info(f"🚀 快速模式：股票池限制为 {len(unique_stocks)} 只")
-            
+
             logger.info(f"热点板块股票池构建完成，去重后共 {len(unique_stocks)} 只股票")
 
             return unique_stocks
@@ -264,7 +264,7 @@ class StockSelector:
                 '000596',  # 古井贡酒
                 '601166',  # 兴业银行
             ]
-        
+
         return [
             # 白酒龙头
             '600519',
@@ -844,7 +844,7 @@ class StockSelector:
         # 如果股票池仍然很大，进一步筛选
         # 快速模式使用更小的股票池
         max_pool_size = 50 if self.fast_mode else 200
-        
+
         if len(stock_pool) > max_pool_size:
             # 优先选择市值适中的股票（避免过小和过大的股票）
             filtered_pool = self._filter_by_market_cap(stock_pool)

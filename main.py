@@ -704,7 +704,7 @@ def run_stock_selection(config: Config, args: argparse.Namespace) -> Optional[st
     try:
         # 检测是否为快速模式（使用EFinance数据源）
         fast_mode = hasattr(args, 'data_source') and args.data_source == 'efinance'
-        
+
         # 创建股票精选器
         selector = StockSelector(config=config, fast_mode=fast_mode)
 

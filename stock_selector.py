@@ -32,6 +32,7 @@ from storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.akshare_fetcher import AkshareFetcher
 from analyzer import GeminiAnalyzer, AnalysisResult
+from analyzers.chanlun_analyzer import analyze_stock_chanlun
 
 logger = logging.getLogger(__name__)
 
@@ -413,10 +414,11 @@ class StockSelector:
         计算技术面评分
 
         评分维度：
-        1. 均线排列 (30分)
-        2. 乖离率安全性 (25分)
-        3. 量能配合 (25分)
-        4. K线形态 (20分)
+        1. 均线排列 (25分)
+        2. 乖离率安全性 (20分)
+        3. 量能配合 (20分)
+        4. K线形态 (15分)
+        5. 缠论分析 (20分) - 新增
 
         Args:
             df: 股票历史数据
@@ -446,12 +448,12 @@ class StockSelector:
             score = 0.0
             details = {'current_price': current_price, 'ma5': ma5, 'ma10': ma10, 'ma20': ma20, 'ma60': ma60}
 
-            # 1. 均线排列评分 (30分)
+            # 1. 均线排列评分 (25分)
             ma_score = 0
             if ma5 > ma10 > ma20:  # 多头排列
-                ma_score = 30
+                ma_score = 25
             elif ma5 > ma10:  # 短期多头
-                ma_score = 20
+                ma_score = 18
             elif ma5 < ma10 < ma20:  # 空头排列
                 ma_score = 0
             else:  # 震荡
@@ -460,60 +462,108 @@ class StockSelector:
             score += ma_score
             details['ma_alignment'] = "多头排列" if ma5 > ma10 > ma20 else "震荡" if ma5 > ma10 else "空头排列"
 
-            # 2. 乖离率安全性 (25分)
+            # 2. 乖离率安全性 (20分)
             bias_ma5 = (current_price - ma5) / ma5 * 100
             bias_ma20 = (current_price - ma20) / ma20 * 100
 
             bias_score = 0
             if -2 <= bias_ma5 <= 3:  # 乖离率安全区间
-                bias_score = 25
+                bias_score = 20
             elif -5 <= bias_ma5 <= 5:  # 可接受区间
-                bias_score = 15
+                bias_score = 12
             elif bias_ma5 > 8:  # 严重偏离，追高风险
                 bias_score = 0
             else:  # 超跌
-                bias_score = 10
+                bias_score = 8
 
             score += bias_score
             details['bias_ma5'] = bias_ma5
             details['bias_ma20'] = bias_ma20
 
-            # 3. 量能配合 (25分)
+            # 3. 量能配合 (20分)
             volume_ma5 = df['volume'].rolling(5).mean().iloc[-1]
             volume_ma20 = df['volume'].rolling(20).mean().iloc[-1]
             current_volume = latest['volume']
 
             volume_score = 0
             if current_volume > volume_ma5 * 1.5:  # 明显放量
-                volume_score = 25
-            elif current_volume > volume_ma5:  # 温和放量
                 volume_score = 20
+            elif current_volume > volume_ma5:  # 温和放量
+                volume_score = 16
             elif current_volume > volume_ma20 * 0.8:  # 正常量能
-                volume_score = 15
+                volume_score = 12
             else:  # 缩量
-                volume_score = 5
+                volume_score = 4
 
             score += volume_score
             details['volume_ratio_calc'] = current_volume / volume_ma5
 
-            # 4. K线形态 (20分)
+            # 4. K线形态 (15分)
             pattern_score = 0
             recent_5 = df.tail(5)
 
             # 连续上涨
             if (recent_5['close'] > recent_5['close'].shift(1)).sum() >= 3:
-                pattern_score = 20
+                pattern_score = 15
             # 震荡上行
             elif recent_5['close'].iloc[-1] > recent_5['close'].iloc[0]:
-                pattern_score = 15
+                pattern_score = 12
             # 横盘整理
             elif abs(recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0] < 0.03:
-                pattern_score = 10
+                pattern_score = 8
             else:
-                pattern_score = 5
+                pattern_score = 4
 
             score += pattern_score
-            details['pattern'] = "上涨趋势" if pattern_score >= 15 else "震荡" if pattern_score >= 10 else "下跌趋势"
+            details['pattern'] = "上涨趋势" if pattern_score >= 12 else "震荡" if pattern_score >= 8 else "下跌趋势"
+
+            # 5. 缠论分析 (20分) - 新增
+            chanlun_score = 0
+            chanlun_details = {}
+
+            try:
+                # 进行缠论分析
+                chanlun_result = analyze_stock_chanlun(df)
+                if chanlun_result:
+                    # 基于缠论评分
+                    chanlun_base_score = chanlun_result.get('chanlun_score', 50)
+                    chanlun_score = (chanlun_base_score - 50) * 0.4  # 转换为-20到20分
+                    chanlun_score = max(0, min(20, chanlun_score + 10))  # 调整为0-20分
+
+                    # 买卖点加分
+                    buy_sell_points = chanlun_result.get('buy_sell_points', [])
+                    recent_buy_points = [p for p in buy_sell_points if '买' in p.type.value and p.index >= len(df) - 5]
+                    if recent_buy_points:
+                        chanlun_score = min(20, chanlun_score + len(recent_buy_points) * 2)
+
+                    # 背驰分析
+                    beichi = chanlun_result.get('beichi_analysis', {})
+                    if beichi.get('has_beichi') and beichi.get('type') == '下跌背驰':
+                        chanlun_score = min(20, chanlun_score + 5)
+
+                    chanlun_details = {
+                        'trend_type': (
+                            chanlun_result.get('trend_type', '').value
+                            if hasattr(chanlun_result.get('trend_type', ''), 'value')
+                            else str(chanlun_result.get('trend_type', ''))
+                        ),
+                        'zhongshu_count': len(chanlun_result.get('zhongshus', [])),
+                        'buy_points': len([p for p in buy_sell_points if '买' in p.type.value]),
+                        'sell_points': len([p for p in buy_sell_points if '卖' in p.type.value]),
+                        'has_beichi': beichi.get('has_beichi', False),
+                        'beichi_type': beichi.get('type', '无'),
+                    }
+                else:
+                    chanlun_score = 10  # 默认中性分数
+
+            except Exception as e:
+                logger.warning(f"[{code}] 缠论分析失败: {e}")
+                chanlun_score = 10  # 默认中性分数
+                chanlun_details = {'error': str(e)}
+
+            score += chanlun_score
+            details['chanlun'] = chanlun_details
+            details['chanlun_score'] = chanlun_score
 
             return min(score, 100.0), details
 

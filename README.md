@@ -189,12 +189,15 @@ python main.py --stock-selection
 # 自定义精选数量和策略
 python main.py --stock-selection --selection-count 30 --selection-strategy trend_following
 
-# GitHub Actions 中选择 "selection-only" 模式
+# GitHub Actions 中选择运行模式：
+# - "selection-only": 标准股票精选（20-40分钟）
+# - "quickly-selection-only": 快速股票精选，使用EFinance数据源（10-20分钟）
 ```
 
 **🚀 性能优化**：
-- **智能股票池**：只分析前20个热点板块，每个板块前30只股票（最多600只）
-- **运行时间**：从4小时缩短至30-60分钟
+- **智能股票池**：只分析前20个热点板块，每个板块前20只股票（最多400只）
+- **运行时间**：标准模式20-40分钟，快速模式10-20分钟
+- **数据源选择**：支持指定EFinance等高速数据源
 - **精选质量**：聚焦热点板块，提高精选股票的市场关注度
 
 **精选策略**：
@@ -209,8 +212,8 @@ python main.py --stock-selection --selection-count 30 --selection-strategy trend
 **股票池构成**：
 1. 获取概念板块涨跌幅排行
 2. 选择前20个热点板块
-3. 每个板块选择前30只股票（按涨跌幅排序）
-4. 去重后形成最终股票池（通常300-600只）
+3. 每个板块选择前20只股票（按涨跌幅排序）
+4. 去重后形成最终股票池（通常200-400只）
 
 > 📖 详细使用指南请参考 [股票精选功能指南](STOCK_SELECTION_GUIDE.md)
 

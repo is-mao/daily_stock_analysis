@@ -639,6 +639,7 @@ def parse_arguments() -> argparse.Namespace:
   python main.py --market-review    # 仅运行大盘复盘
   python main.py --stock-selection  # 仅运行每日股票精选
   python main.py --stock-selection --selection-count 30 --selection-strategy trend_following  # 自定义精选参数
+  python main.py --stock-selection --data-source efinance  # 使用EFinance数据源（最快）
         ''',
     )
 
@@ -676,6 +677,14 @@ def parse_arguments() -> argparse.Namespace:
         help='股票精选策略（默认综合策略）',
     )
 
+    parser.add_argument(
+        '--data-source',
+        type=str,
+        choices=['auto', 'efinance', 'akshare', 'tushare', 'baostock', 'yfinance'],
+        default='auto',
+        help='指定数据源（默认自动选择）',
+    )
+
     return parser.parse_args()
 
 
@@ -693,8 +702,16 @@ def run_stock_selection(config: Config, args: argparse.Namespace) -> Optional[st
     logger.info("开始执行每日股票精选...")
 
     try:
+        # 检测是否为快速模式（使用EFinance数据源）
+        fast_mode = hasattr(args, 'data_source') and args.data_source == 'efinance'
+
         # 创建股票精选器
-        selector = StockSelector(config=config)
+        selector = StockSelector(config=config, fast_mode=fast_mode)
+
+        # 如果指定了数据源，设置优先数据源
+        if hasattr(args, 'data_source') and args.data_source != 'auto':
+            logger.info(f"🚀 使用指定数据源: {args.data_source}")
+            selector.preferred_data_source = args.data_source
 
         # 解析精选策略
         strategy_map = {
@@ -746,6 +763,17 @@ def run_stock_selection(config: Config, args: argparse.Namespace) -> Optional[st
                 f"{emoji} {stock.name}({stock.code}): {stock.recommend_level.value} | "
                 f"评分 {stock.total_score:.1f} | 价格 ¥{stock.current_price:.2f}"
             )
+
+        # 输出可操作股票摘要
+        tradeable_stocks = getattr(selector, '_tradeable_stocks', [])
+        if tradeable_stocks:
+            logger.info("\n===== 🎯 可操作股票推荐 (已排除创业板/科创板) =====")
+            for i, stock in enumerate(tradeable_stocks[:10], 1):  # 显示前10只
+                emoji = stock.get_emoji()
+                logger.info(
+                    f"{i:2d}. {emoji} {stock.name}({stock.code}): {stock.recommend_level.value} | "
+                    f"评分 {stock.total_score:.1f} | 价格 ¥{stock.current_price:.2f}"
+                )
 
         return report
 

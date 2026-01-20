@@ -114,12 +114,20 @@ class StockSelector:
     3. 生成每日精选报告
     """
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, fast_mode=False):
         self.config = config or get_config()
         self.db = get_db()
         self.fetcher_manager = DataFetcherManager()
         self.akshare_fetcher = AkshareFetcher()
         self.analyzer = GeminiAnalyzer()
+
+        # 数据源配置
+        self.preferred_data_source = 'auto'  # 默认自动选择
+
+        # 快速模式配置
+        self.fast_mode = fast_mode
+        if fast_mode:
+            logger.info("🚀 启用快速模式：减少延时和股票数量")
 
         # 筛选参数
         self.min_market_cap = 50e8  # 最小市值50亿
@@ -131,10 +139,10 @@ class StockSelector:
 
     def get_stock_pool(self) -> List[str]:
         """
-        获取股票池 - 优化版：只分析前20个热点板块，每个板块前30只股票
+        获取股票池 - 优化版：只分析前20个热点板块，每个板块前20只股票
 
         Returns:
-            股票代码列表（最多600只：20板块 × 30股票）
+            股票代码列表（最多400只：20板块 × 20股票）
         """
         try:
             logger.info("开始获取热点板块股票池...")
@@ -160,7 +168,7 @@ class StockSelector:
         策略：
         1. 获取概念板块涨跌幅排行
         2. 选择前20个热点板块
-        3. 每个板块选择前30只股票（按涨跌幅或成交额排序）
+        3. 每个板块选择前20只股票（按涨跌幅或成交额排序）
 
         Returns:
             股票代码列表
@@ -177,8 +185,10 @@ class StockSelector:
                 return []
 
             # 选择前20个热点板块（按涨跌幅排序）
-            hot_concepts = concept_df.head(20)
-            logger.info(f"选择前20个热点板块: {list(hot_concepts['板块名称'])}")
+            # 快速模式只选择前10个板块
+            sector_count = 10 if self.fast_mode else 20
+            hot_concepts = concept_df.head(sector_count)
+            logger.info(f"选择前{sector_count}个热点板块: {list(hot_concepts['板块名称'])}")
 
             all_stocks = []
 
@@ -194,15 +204,18 @@ class StockSelector:
                         logger.warning(f"板块 [{concept_name}] 无股票数据")
                         continue
 
-                    # 选择前30只股票（按涨跌幅排序）
-                    top_stocks = concept_stocks_df.head(30)
+                    # 选择前20只股票（按涨跌幅排序）
+                    # 快速模式只选择前10只
+                    stock_count = 10 if self.fast_mode else 20
+                    top_stocks = concept_stocks_df.head(stock_count)
                     stock_codes = top_stocks['代码'].tolist()
 
                     logger.info(f"板块 [{concept_name}] 获取 {len(stock_codes)} 只股票")
                     all_stocks.extend(stock_codes)
 
-                    # 防止请求过快
-                    time.sleep(random.uniform(1, 2))
+                    # 防止请求过快，快速模式减少延时
+                    sleep_time = random.uniform(0.3, 0.8) if self.fast_mode else random.uniform(1, 2)
+                    time.sleep(sleep_time)
 
                 except Exception as e:
                     logger.error(f"获取板块 [{concept_name}] 股票失败: {e}")
@@ -210,6 +223,13 @@ class StockSelector:
 
             # 去重
             unique_stocks = list(set(all_stocks))
+
+            # 快速模式进一步限制股票数量
+            if self.fast_mode and len(unique_stocks) > 50:
+                # 快速模式最多只分析50只股票
+                unique_stocks = unique_stocks[:50]
+                logger.info(f"🚀 快速模式：股票池限制为 {len(unique_stocks)} 只")
+
             logger.info(f"热点板块股票池构建完成，去重后共 {len(unique_stocks)} 只股票")
 
             return unique_stocks
@@ -224,6 +244,27 @@ class StockSelector:
 
         当热点板块获取失败时使用，包含各行业代表性股票
         """
+        # 快速模式使用更小的备选池
+        if self.fast_mode:
+            return [
+                # 核心龙头股（快速模式精选）
+                '600519',  # 贵州茅台
+                '300750',  # 宁德时代
+                '000858',  # 五粮液
+                '002594',  # 比亚迪
+                '600036',  # 招商银行
+                '000001',  # 平安银行
+                '601012',  # 隆基绿能
+                '688599',  # 天合光能
+                '002460',  # 赣锋锂业
+                '300014',  # 亿纬锂能
+                '600809',  # 山西汾酒
+                '000799',  # 酒鬼酒
+                '002304',  # 洋河股份
+                '000596',  # 古井贡酒
+                '601166',  # 兴业银行
+            ]
+
         return [
             # 白酒龙头
             '600519',
@@ -659,8 +700,22 @@ class StockSelector:
         try:
             logger.info(f"开始评估股票 {code}")
 
-            # 获取历史数据
-            df, source = self.fetcher_manager.get_daily_data(code, days=60)
+            # 获取历史数据（支持指定数据源）
+            if self.preferred_data_source == 'efinance':
+                # 使用EFinance数据源（最快）
+                from data_provider.efinance_fetcher import EfinanceFetcher
+
+                efinance_fetcher = EfinanceFetcher()
+                df, source = efinance_fetcher.get_daily_data(code, days=60)
+                logger.info(f"[{code}] 使用EFinance数据源获取数据")
+            elif self.preferred_data_source == 'akshare':
+                # 使用AkShare数据源
+                df, source = self.akshare_fetcher.get_daily_data(code, days=60)
+                logger.info(f"[{code}] 使用AkShare数据源获取数据")
+            else:
+                # 使用默认的数据源管理器（自动选择）
+                df, source = self.fetcher_manager.get_daily_data(code, days=60)
+
             if df is None or len(df) < 30:
                 logger.warning(f"[{code}] 历史数据不足，跳过评估")
                 return None
@@ -778,7 +833,7 @@ class StockSelector:
         """
         logger.info(f"开始每日股票精选，策略: {strategy.value}，最大数量: {max_stocks}")
 
-        # 获取热点板块股票池（最多600只）
+        # 获取热点板块股票池（最多400只）
         stock_pool = self.get_stock_pool()
         logger.info(f"热点板块股票池大小: {len(stock_pool)}")
 
@@ -787,12 +842,19 @@ class StockSelector:
             return []
 
         # 如果股票池仍然很大，进一步筛选
-        if len(stock_pool) > 200:
+        # 快速模式使用更小的股票池
+        max_pool_size = 50 if self.fast_mode else 200
+
+        if len(stock_pool) > max_pool_size:
             # 优先选择市值适中的股票（避免过小和过大的股票）
             filtered_pool = self._filter_by_market_cap(stock_pool)
             if filtered_pool:
-                stock_pool = filtered_pool[:200]  # 最多200只
+                stock_pool = filtered_pool[:max_pool_size]
                 logger.info(f"按市值筛选后，股票池缩减至: {len(stock_pool)} 只")
+            else:
+                # 如果市值筛选失败，直接截取
+                stock_pool = stock_pool[:max_pool_size]
+                logger.info(f"直接截取股票池至: {len(stock_pool)} 只")
 
         selected_stocks = []
         total_stocks = len(stock_pool)
@@ -811,10 +873,16 @@ class StockSelector:
                     logger.debug(f"❌ {code} 未达标，评分: {stock_score.total_score if stock_score else 0:.1f}")
 
                 # 防止请求过快，但减少延时
-                time.sleep(random.uniform(0.5, 1.5))
+                # 快速模式进一步减少延时
+                if self.fast_mode:
+                    time.sleep(random.uniform(0.1, 0.3))
+                else:
+                    time.sleep(random.uniform(0.5, 1.5))
 
                 # 如果已经找到足够多的优质股票，可以提前结束
-                if len(selected_stocks) >= max_stocks * 2:
+                # 快速模式更早结束
+                early_stop_count = max_stocks if self.fast_mode else max_stocks * 2
+                if len(selected_stocks) >= early_stop_count:
                     logger.info(f"已找到 {len(selected_stocks)} 只优质股票，提前结束筛选")
                     break
 
@@ -835,6 +903,16 @@ class StockSelector:
                 logger.info(
                     f"  {i+1}. {stock.name}({stock.code}): {stock.total_score:.1f}分 - {stock.recommend_level.value}"
                 )
+
+        # 二次筛选：过滤掉创业板(300)和科创板(688)，选出前20只可操作股票
+        tradeable_stocks = self._filter_tradeable_stocks(result)
+
+        # 将可操作股票信息添加到结果中，用于通知
+        if hasattr(self, '_tradeable_stocks'):
+            self._tradeable_stocks = tradeable_stocks
+        else:
+            # 如果没有这个属性，直接设置
+            self._tradeable_stocks = tradeable_stocks
 
         return result
 
@@ -878,6 +956,55 @@ class StockSelector:
             logger.error(f"市值筛选失败: {e}")
             return stock_codes  # 返回原列表
 
+    def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[StockScore]:
+        """
+        二次筛选：过滤掉创业板(300)和科创板(688)股票，选出前20只可操作股票
+
+        Args:
+            selected_stocks: 初步精选的股票列表
+
+        Returns:
+            可操作的股票列表（最多20只）
+        """
+        try:
+            logger.info("开始二次筛选：过滤创业板和科创板股票...")
+
+            # 过滤掉创业板(300)和科创板(688)
+            tradeable_stocks = []
+            filtered_out = []
+
+            for stock in selected_stocks:
+                code = stock.code
+                if code.startswith('300') or code.startswith('688'):
+                    filtered_out.append(f"{stock.name}({code})")
+                else:
+                    tradeable_stocks.append(stock)
+
+            # 记录过滤信息
+            if filtered_out:
+                logger.info(f"过滤掉创业板/科创板股票 {len(filtered_out)} 只: {', '.join(filtered_out[:5])}")
+                if len(filtered_out) > 5:
+                    logger.info(f"  还有 {len(filtered_out) - 5} 只...")
+
+            # 选择前20只可操作股票
+            top_tradeable = tradeable_stocks[:20]
+
+            logger.info(f"二次筛选完成：可操作股票 {len(top_tradeable)} 只")
+            if top_tradeable:
+                logger.info("🎯 前20只可操作股票:")
+                for i, stock in enumerate(top_tradeable):
+                    emoji = stock.get_emoji()
+                    logger.info(
+                        f"  {i+1:2d}. {emoji} {stock.name}({stock.code}): "
+                        f"{stock.total_score:.1f}分 - {stock.recommend_level.value} - ¥{stock.current_price:.2f}"
+                    )
+
+            return top_tradeable
+
+        except Exception as e:
+            logger.error(f"二次筛选失败: {e}")
+            return selected_stocks[:20]  # 返回前20只原始结果
+
     def generate_selection_report(self, selected_stocks: List[StockScore]) -> str:
         """
         生成精选报告
@@ -908,7 +1035,34 @@ class StockSelector:
         )
         report_lines.append("")
 
-        # 分级展示
+        # 添加可操作股票专区（排除创业板300和科创板688）
+        tradeable_stocks = getattr(self, '_tradeable_stocks', [])
+        if tradeable_stocks:
+            report_lines.append("## 🎯 可操作股票推荐 (前20只，已排除创业板300/科创板688)")
+            report_lines.append("")
+            report_lines.append("*以下股票可直接操作，无需担心交易限制*")
+            report_lines.append("")
+
+            for i, stock in enumerate(tradeable_stocks, 1):
+                emoji = stock.get_emoji()
+                report_lines.append(f"**{i:2d}. {emoji} {stock.name}({stock.code})**")
+                report_lines.append(f"   📊 评分: {stock.total_score:.1f}分 | 推荐: {stock.recommend_level.value}")
+                report_lines.append(
+                    f"   💰 价格: ¥{stock.current_price:.2f} | 操作: 买入¥{stock.buy_price:.2f} 止损¥{stock.stop_loss:.2f}"
+                )
+
+                # 添加关键指标
+                if stock.volume_ratio > 0:
+                    report_lines.append(
+                        f"   📈 量比: {stock.volume_ratio:.2f} | 换手: {stock.turnover_rate:.2f}% | PE: {stock.pe_ratio:.1f}"
+                    )
+
+                report_lines.append("")
+
+            report_lines.append("---")
+            report_lines.append("")
+
+        # 完整精选结果分级展示
         for level in [RecommendLevel.STRONG_BUY, RecommendLevel.BUY, RecommendLevel.WATCH]:
             level_stocks = [s for s in selected_stocks if s.recommend_level == level]
             if not level_stocks:

@@ -261,11 +261,11 @@ class DataFetcherManager:
         初始化默认数据源列表
 
         按优先级排序：
-        0. EfinanceFetcher (Priority 0) - 最高优先级
-        1. AkshareFetcher (Priority 1)
+        1. AkshareFetcher (Priority 1) - 最高优先级，默认数据源
         2. TushareFetcher (Priority 2)
         3. BaostockFetcher (Priority 3)
         4. YfinanceFetcher (Priority 4)
+        5. EfinanceFetcher (Priority 5) - 仅在明确指定时使用
         """
         from .efinance_fetcher import EfinanceFetcher
         from .akshare_fetcher import AkshareFetcher
@@ -274,11 +274,11 @@ class DataFetcherManager:
         from .yfinance_fetcher import YfinanceFetcher
 
         self._fetchers = [
-            EfinanceFetcher(),  # 最高优先级
-            AkshareFetcher(),
+            AkshareFetcher(),  # 最高优先级，默认数据源
             TushareFetcher(),
             BaostockFetcher(),
             YfinanceFetcher(),
+            EfinanceFetcher(),  # 较低优先级，仅在明确指定时使用
         ]
 
         # 按优先级排序

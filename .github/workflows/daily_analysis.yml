@@ -1,9 +1,9 @@
 name: 每日股票分析
 
 on:
-  # 定时触发 - 每天北京时间 18:00 (UTC 10:00)
-  schedule:
-    - cron: '0 10 * * 1-5'  # 周一到周五，UTC 10:00 = 北京时间 18:00
+  # 定时触发已禁用 - 仅支持手动运行
+  # schedule:
+  #   - cron: '0 10 * * 1-5'  # 周一到周五，UTC 10:00 = 北京时间 18:00
   
   # 手动触发
   workflow_dispatch:
@@ -17,7 +17,8 @@ on:
           - full          # 完整分析（股票+大盘）
           - market-only   # 仅大盘复盘
           - stocks-only   # 仅股票分析
-          - selection-only # 仅股票精选
+          - selection-only # 仅股票精选（标准模式，~200只股票，20-40分钟）
+          - quickly-selection-only # 快速股票精选（使用EFinance，~50只股票，5-10分钟）
 
 jobs:
   analyze:
@@ -108,6 +109,8 @@ jobs:
             python main.py --no-market-review
           elif [ "$MODE" = "selection-only" ]; then
             python main.py --stock-selection
+          elif [ "$MODE" = "quickly-selection-only" ]; then
+            python main.py --stock-selection --data-source efinance --selection-count 10 --selection-strategy trend_following
           else
             python main.py
           fi

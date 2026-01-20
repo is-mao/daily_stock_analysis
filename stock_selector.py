@@ -121,6 +121,9 @@ class StockSelector:
         self.akshare_fetcher = AkshareFetcher()
         self.analyzer = GeminiAnalyzer()
 
+        # 数据源配置
+        self.preferred_data_source = 'auto'  # 默认自动选择
+
         # 筛选参数
         self.min_market_cap = 50e8  # 最小市值50亿
         self.min_daily_amount = 1e8  # 最小日成交额1亿
@@ -659,8 +662,22 @@ class StockSelector:
         try:
             logger.info(f"开始评估股票 {code}")
 
-            # 获取历史数据
-            df, source = self.fetcher_manager.get_daily_data(code, days=60)
+            # 获取历史数据（支持指定数据源）
+            if self.preferred_data_source == 'efinance':
+                # 使用EFinance数据源（最快）
+                from data_provider.efinance_fetcher import EfinanceFetcher
+
+                efinance_fetcher = EfinanceFetcher()
+                df, source = efinance_fetcher.get_daily_data(code, days=60)
+                logger.info(f"[{code}] 使用EFinance数据源获取数据")
+            elif self.preferred_data_source == 'akshare':
+                # 使用AkShare数据源
+                df, source = self.akshare_fetcher.get_daily_data(code, days=60)
+                logger.info(f"[{code}] 使用AkShare数据源获取数据")
+            else:
+                # 使用默认的数据源管理器（自动选择）
+                df, source = self.fetcher_manager.get_daily_data(code, days=60)
+
             if df is None or len(df) < 30:
                 logger.warning(f"[{code}] 历史数据不足，跳过评估")
                 return None
@@ -838,7 +855,7 @@ class StockSelector:
 
         # 二次筛选：过滤掉创业板(300)和科创板(688)，选出前20只可操作股票
         tradeable_stocks = self._filter_tradeable_stocks(result)
-        
+
         # 将可操作股票信息添加到结果中，用于通知
         if hasattr(self, '_tradeable_stocks'):
             self._tradeable_stocks = tradeable_stocks
@@ -891,36 +908,36 @@ class StockSelector:
     def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[StockScore]:
         """
         二次筛选：过滤掉创业板(300)和科创板(688)股票，选出前20只可操作股票
-        
+
         Args:
             selected_stocks: 初步精选的股票列表
-            
+
         Returns:
             可操作的股票列表（最多20只）
         """
         try:
             logger.info("开始二次筛选：过滤创业板和科创板股票...")
-            
+
             # 过滤掉创业板(300)和科创板(688)
             tradeable_stocks = []
             filtered_out = []
-            
+
             for stock in selected_stocks:
                 code = stock.code
                 if code.startswith('300') or code.startswith('688'):
                     filtered_out.append(f"{stock.name}({code})")
                 else:
                     tradeable_stocks.append(stock)
-            
+
             # 记录过滤信息
             if filtered_out:
                 logger.info(f"过滤掉创业板/科创板股票 {len(filtered_out)} 只: {', '.join(filtered_out[:5])}")
                 if len(filtered_out) > 5:
                     logger.info(f"  还有 {len(filtered_out) - 5} 只...")
-            
+
             # 选择前20只可操作股票
             top_tradeable = tradeable_stocks[:20]
-            
+
             logger.info(f"二次筛选完成：可操作股票 {len(top_tradeable)} 只")
             if top_tradeable:
                 logger.info("🎯 前20只可操作股票:")
@@ -930,9 +947,9 @@ class StockSelector:
                         f"  {i+1:2d}. {emoji} {stock.name}({stock.code}): "
                         f"{stock.total_score:.1f}分 - {stock.recommend_level.value} - ¥{stock.current_price:.2f}"
                     )
-            
+
             return top_tradeable
-            
+
         except Exception as e:
             logger.error(f"二次筛选失败: {e}")
             return selected_stocks[:20]  # 返回前20只原始结果
@@ -974,19 +991,23 @@ class StockSelector:
             report_lines.append("")
             report_lines.append("*以下股票可直接操作，无需担心交易限制*")
             report_lines.append("")
-            
+
             for i, stock in enumerate(tradeable_stocks, 1):
                 emoji = stock.get_emoji()
                 report_lines.append(f"**{i:2d}. {emoji} {stock.name}({stock.code})**")
                 report_lines.append(f"   📊 评分: {stock.total_score:.1f}分 | 推荐: {stock.recommend_level.value}")
-                report_lines.append(f"   💰 价格: ¥{stock.current_price:.2f} | 操作: 买入¥{stock.buy_price:.2f} 止损¥{stock.stop_loss:.2f}")
-                
+                report_lines.append(
+                    f"   💰 价格: ¥{stock.current_price:.2f} | 操作: 买入¥{stock.buy_price:.2f} 止损¥{stock.stop_loss:.2f}"
+                )
+
                 # 添加关键指标
                 if stock.volume_ratio > 0:
-                    report_lines.append(f"   📈 量比: {stock.volume_ratio:.2f} | 换手: {stock.turnover_rate:.2f}% | PE: {stock.pe_ratio:.1f}")
-                
+                    report_lines.append(
+                        f"   📈 量比: {stock.volume_ratio:.2f} | 换手: {stock.turnover_rate:.2f}% | PE: {stock.pe_ratio:.1f}"
+                    )
+
                 report_lines.append("")
-            
+
             report_lines.append("---")
             report_lines.append("")
 

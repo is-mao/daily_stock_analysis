@@ -223,8 +223,10 @@ A: 检查网络连接，可能触发了反爬限制，稍后重试
 # 启用调试模式查看详细日志
 python main.py --stock-selection --debug
 
-# 测试单只股票评估
-python test_stock_selection.py
+# 测试股票精选功能
+```bash
+# 使用演示脚本测试
+python demo_stock_selection.py
 ```
 
 ## 🔄 更新日志

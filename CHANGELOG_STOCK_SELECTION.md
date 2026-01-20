@@ -249,8 +249,7 @@ market_cap_range = (50e8, 5000e8)  # 市值范围
 
 ### 🧪 测试验证
 
-#### 逻辑测试
-- 创建 `test_stock_selection_logic.py`
+#### 逻辑验证
 - 验证热点板块获取逻辑
 - 性能对比分析
 

@@ -243,7 +243,7 @@ daily_stock_analysis/
 │   ├── tushare_fetcher.py
 │   ├── baostock_fetcher.py
 │   └── yfinance_fetcher.py
-├── test_stock_selection.py    # 股票精选测试脚本 **[NEW]**
+
 ├── demo_stock_selection.py    # 股票精选演示脚本 **[NEW]**
 ├── STOCK_SELECTION_GUIDE.md  # 股票精选使用指南 **[NEW]**
 ├── DATA_SOURCE_CONFIRMATION.md # 数据来源确认说明 **[NEW]**

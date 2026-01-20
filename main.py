@@ -747,6 +747,17 @@ def run_stock_selection(config: Config, args: argparse.Namespace) -> Optional[st
                 f"评分 {stock.total_score:.1f} | 价格 ¥{stock.current_price:.2f}"
             )
 
+        # 输出可操作股票摘要
+        tradeable_stocks = getattr(selector, '_tradeable_stocks', [])
+        if tradeable_stocks:
+            logger.info("\n===== 🎯 可操作股票推荐 (已排除创业板/科创板) =====")
+            for i, stock in enumerate(tradeable_stocks[:10], 1):  # 显示前10只
+                emoji = stock.get_emoji()
+                logger.info(
+                    f"{i:2d}. {emoji} {stock.name}({stock.code}): {stock.recommend_level.value} | "
+                    f"评分 {stock.total_score:.1f} | 价格 ¥{stock.current_price:.2f}"
+                )
+
         return report
 
     except Exception as e:

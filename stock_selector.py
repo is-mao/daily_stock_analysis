@@ -131,10 +131,10 @@ class StockSelector:
 
     def get_stock_pool(self) -> List[str]:
         """
-        获取股票池 - 优化版：只分析前20个热点板块，每个板块前30只股票
+        获取股票池 - 优化版：只分析前20个热点板块，每个板块前20只股票
 
         Returns:
-            股票代码列表（最多600只：20板块 × 30股票）
+            股票代码列表（最多400只：20板块 × 20股票）
         """
         try:
             logger.info("开始获取热点板块股票池...")
@@ -160,7 +160,7 @@ class StockSelector:
         策略：
         1. 获取概念板块涨跌幅排行
         2. 选择前20个热点板块
-        3. 每个板块选择前30只股票（按涨跌幅或成交额排序）
+        3. 每个板块选择前20只股票（按涨跌幅或成交额排序）
 
         Returns:
             股票代码列表
@@ -194,8 +194,8 @@ class StockSelector:
                         logger.warning(f"板块 [{concept_name}] 无股票数据")
                         continue
 
-                    # 选择前30只股票（按涨跌幅排序）
-                    top_stocks = concept_stocks_df.head(30)
+                    # 选择前20只股票（按涨跌幅排序）
+                    top_stocks = concept_stocks_df.head(20)
                     stock_codes = top_stocks['代码'].tolist()
 
                     logger.info(f"板块 [{concept_name}] 获取 {len(stock_codes)} 只股票")
@@ -778,7 +778,7 @@ class StockSelector:
         """
         logger.info(f"开始每日股票精选，策略: {strategy.value}，最大数量: {max_stocks}")
 
-        # 获取热点板块股票池（最多600只）
+        # 获取热点板块股票池（最多400只）
         stock_pool = self.get_stock_pool()
         logger.info(f"热点板块股票池大小: {len(stock_pool)}")
 
@@ -836,6 +836,16 @@ class StockSelector:
                     f"  {i+1}. {stock.name}({stock.code}): {stock.total_score:.1f}分 - {stock.recommend_level.value}"
                 )
 
+        # 二次筛选：过滤掉创业板(300)和科创板(688)，选出前20只可操作股票
+        tradeable_stocks = self._filter_tradeable_stocks(result)
+        
+        # 将可操作股票信息添加到结果中，用于通知
+        if hasattr(self, '_tradeable_stocks'):
+            self._tradeable_stocks = tradeable_stocks
+        else:
+            # 如果没有这个属性，直接设置
+            self._tradeable_stocks = tradeable_stocks
+
         return result
 
     def _filter_by_market_cap(self, stock_codes: List[str]) -> List[str]:
@@ -878,6 +888,55 @@ class StockSelector:
             logger.error(f"市值筛选失败: {e}")
             return stock_codes  # 返回原列表
 
+    def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[StockScore]:
+        """
+        二次筛选：过滤掉创业板(300)和科创板(688)股票，选出前20只可操作股票
+        
+        Args:
+            selected_stocks: 初步精选的股票列表
+            
+        Returns:
+            可操作的股票列表（最多20只）
+        """
+        try:
+            logger.info("开始二次筛选：过滤创业板和科创板股票...")
+            
+            # 过滤掉创业板(300)和科创板(688)
+            tradeable_stocks = []
+            filtered_out = []
+            
+            for stock in selected_stocks:
+                code = stock.code
+                if code.startswith('300') or code.startswith('688'):
+                    filtered_out.append(f"{stock.name}({code})")
+                else:
+                    tradeable_stocks.append(stock)
+            
+            # 记录过滤信息
+            if filtered_out:
+                logger.info(f"过滤掉创业板/科创板股票 {len(filtered_out)} 只: {', '.join(filtered_out[:5])}")
+                if len(filtered_out) > 5:
+                    logger.info(f"  还有 {len(filtered_out) - 5} 只...")
+            
+            # 选择前20只可操作股票
+            top_tradeable = tradeable_stocks[:20]
+            
+            logger.info(f"二次筛选完成：可操作股票 {len(top_tradeable)} 只")
+            if top_tradeable:
+                logger.info("🎯 前20只可操作股票:")
+                for i, stock in enumerate(top_tradeable):
+                    emoji = stock.get_emoji()
+                    logger.info(
+                        f"  {i+1:2d}. {emoji} {stock.name}({stock.code}): "
+                        f"{stock.total_score:.1f}分 - {stock.recommend_level.value} - ¥{stock.current_price:.2f}"
+                    )
+            
+            return top_tradeable
+            
+        except Exception as e:
+            logger.error(f"二次筛选失败: {e}")
+            return selected_stocks[:20]  # 返回前20只原始结果
+
     def generate_selection_report(self, selected_stocks: List[StockScore]) -> str:
         """
         生成精选报告
@@ -908,7 +967,30 @@ class StockSelector:
         )
         report_lines.append("")
 
-        # 分级展示
+        # 添加可操作股票专区（排除创业板300和科创板688）
+        tradeable_stocks = getattr(self, '_tradeable_stocks', [])
+        if tradeable_stocks:
+            report_lines.append("## 🎯 可操作股票推荐 (前20只，已排除创业板300/科创板688)")
+            report_lines.append("")
+            report_lines.append("*以下股票可直接操作，无需担心交易限制*")
+            report_lines.append("")
+            
+            for i, stock in enumerate(tradeable_stocks, 1):
+                emoji = stock.get_emoji()
+                report_lines.append(f"**{i:2d}. {emoji} {stock.name}({stock.code})**")
+                report_lines.append(f"   📊 评分: {stock.total_score:.1f}分 | 推荐: {stock.recommend_level.value}")
+                report_lines.append(f"   💰 价格: ¥{stock.current_price:.2f} | 操作: 买入¥{stock.buy_price:.2f} 止损¥{stock.stop_loss:.2f}")
+                
+                # 添加关键指标
+                if stock.volume_ratio > 0:
+                    report_lines.append(f"   📈 量比: {stock.volume_ratio:.2f} | 换手: {stock.turnover_rate:.2f}% | PE: {stock.pe_ratio:.1f}")
+                
+                report_lines.append("")
+            
+            report_lines.append("---")
+            report_lines.append("")
+
+        # 完整精选结果分级展示
         for level in [RecommendLevel.STRONG_BUY, RecommendLevel.BUY, RecommendLevel.WATCH]:
             level_stocks = [s for s in selected_stocks if s.recommend_level == level]
             if not level_stocks:

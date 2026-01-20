@@ -702,8 +702,11 @@ def run_stock_selection(config: Config, args: argparse.Namespace) -> Optional[st
     logger.info("开始执行每日股票精选...")
 
     try:
+        # 检测是否为快速模式（使用EFinance数据源）
+        fast_mode = hasattr(args, 'data_source') and args.data_source == 'efinance'
+        
         # 创建股票精选器
-        selector = StockSelector(config=config)
+        selector = StockSelector(config=config, fast_mode=fast_mode)
 
         # 如果指定了数据源，设置优先数据源
         if hasattr(args, 'data_source') and args.data_source != 'auto':

@@ -10,11 +10,11 @@
 3. 防封禁流控策略
 
 数据源优先级：
-1. EfinanceFetcher (Priority 0) - 最高优先级，来自 efinance 库
-2. AkshareFetcher (Priority 1) - 来自 akshare 库
-3. TushareFetcher (Priority 2) - 来自 tushare 库
-4. BaostockFetcher (Priority 3) - 来自 baostock 库
-5. YfinanceFetcher (Priority 4) - 来自 yfinance 库
+1. AkshareFetcher (Priority 1) - 最高优先级，默认数据源
+2. TushareFetcher (Priority 2) - 来自 tushare 库
+3. BaostockFetcher (Priority 3) - 来自 baostock 库
+4. YfinanceFetcher (Priority 4) - 来自 yfinance 库
+5. EfinanceFetcher (Priority 5) - 来自 efinance 库，仅在明确指定时使用
 """
 
 from .base import BaseFetcher, DataFetcherManager

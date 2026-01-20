@@ -114,7 +114,7 @@ class StockSelector:
     3. 生成每日精选报告
     """
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, fast_mode=False):
         self.config = config or get_config()
         self.db = get_db()
         self.fetcher_manager = DataFetcherManager()
@@ -123,6 +123,11 @@ class StockSelector:
 
         # 数据源配置
         self.preferred_data_source = 'auto'  # 默认自动选择
+        
+        # 快速模式配置
+        self.fast_mode = fast_mode
+        if fast_mode:
+            logger.info("🚀 启用快速模式：减少延时和股票数量")
 
         # 筛选参数
         self.min_market_cap = 50e8  # 最小市值50亿
@@ -180,8 +185,10 @@ class StockSelector:
                 return []
 
             # 选择前20个热点板块（按涨跌幅排序）
-            hot_concepts = concept_df.head(20)
-            logger.info(f"选择前20个热点板块: {list(hot_concepts['板块名称'])}")
+            # 快速模式只选择前10个板块
+            sector_count = 10 if self.fast_mode else 20
+            hot_concepts = concept_df.head(sector_count)
+            logger.info(f"选择前{sector_count}个热点板块: {list(hot_concepts['板块名称'])}")
 
             all_stocks = []
 
@@ -198,14 +205,17 @@ class StockSelector:
                         continue
 
                     # 选择前20只股票（按涨跌幅排序）
-                    top_stocks = concept_stocks_df.head(20)
+                    # 快速模式只选择前10只
+                    stock_count = 10 if self.fast_mode else 20
+                    top_stocks = concept_stocks_df.head(stock_count)
                     stock_codes = top_stocks['代码'].tolist()
 
                     logger.info(f"板块 [{concept_name}] 获取 {len(stock_codes)} 只股票")
                     all_stocks.extend(stock_codes)
 
-                    # 防止请求过快
-                    time.sleep(random.uniform(1, 2))
+                    # 防止请求过快，快速模式减少延时
+                    sleep_time = random.uniform(0.3, 0.8) if self.fast_mode else random.uniform(1, 2)
+                    time.sleep(sleep_time)
 
                 except Exception as e:
                     logger.error(f"获取板块 [{concept_name}] 股票失败: {e}")
@@ -213,6 +223,13 @@ class StockSelector:
 
             # 去重
             unique_stocks = list(set(all_stocks))
+            
+            # 快速模式进一步限制股票数量
+            if self.fast_mode and len(unique_stocks) > 50:
+                # 快速模式最多只分析50只股票
+                unique_stocks = unique_stocks[:50]
+                logger.info(f"🚀 快速模式：股票池限制为 {len(unique_stocks)} 只")
+            
             logger.info(f"热点板块股票池构建完成，去重后共 {len(unique_stocks)} 只股票")
 
             return unique_stocks
@@ -227,6 +244,27 @@ class StockSelector:
 
         当热点板块获取失败时使用，包含各行业代表性股票
         """
+        # 快速模式使用更小的备选池
+        if self.fast_mode:
+            return [
+                # 核心龙头股（快速模式精选）
+                '600519',  # 贵州茅台
+                '300750',  # 宁德时代
+                '000858',  # 五粮液
+                '002594',  # 比亚迪
+                '600036',  # 招商银行
+                '000001',  # 平安银行
+                '601012',  # 隆基绿能
+                '688599',  # 天合光能
+                '002460',  # 赣锋锂业
+                '300014',  # 亿纬锂能
+                '600809',  # 山西汾酒
+                '000799',  # 酒鬼酒
+                '002304',  # 洋河股份
+                '000596',  # 古井贡酒
+                '601166',  # 兴业银行
+            ]
+        
         return [
             # 白酒龙头
             '600519',
@@ -804,12 +842,19 @@ class StockSelector:
             return []
 
         # 如果股票池仍然很大，进一步筛选
-        if len(stock_pool) > 200:
+        # 快速模式使用更小的股票池
+        max_pool_size = 50 if self.fast_mode else 200
+        
+        if len(stock_pool) > max_pool_size:
             # 优先选择市值适中的股票（避免过小和过大的股票）
             filtered_pool = self._filter_by_market_cap(stock_pool)
             if filtered_pool:
-                stock_pool = filtered_pool[:200]  # 最多200只
+                stock_pool = filtered_pool[:max_pool_size]
                 logger.info(f"按市值筛选后，股票池缩减至: {len(stock_pool)} 只")
+            else:
+                # 如果市值筛选失败，直接截取
+                stock_pool = stock_pool[:max_pool_size]
+                logger.info(f"直接截取股票池至: {len(stock_pool)} 只")
 
         selected_stocks = []
         total_stocks = len(stock_pool)
@@ -828,10 +873,16 @@ class StockSelector:
                     logger.debug(f"❌ {code} 未达标，评分: {stock_score.total_score if stock_score else 0:.1f}")
 
                 # 防止请求过快，但减少延时
-                time.sleep(random.uniform(0.5, 1.5))
+                # 快速模式进一步减少延时
+                if self.fast_mode:
+                    time.sleep(random.uniform(0.1, 0.3))
+                else:
+                    time.sleep(random.uniform(0.5, 1.5))
 
                 # 如果已经找到足够多的优质股票，可以提前结束
-                if len(selected_stocks) >= max_stocks * 2:
+                # 快速模式更早结束
+                early_stop_count = max_stocks if self.fast_mode else max_stocks * 2
+                if len(selected_stocks) >= early_stop_count:
                     logger.info(f"已找到 {len(selected_stocks)} 只优质股票，提前结束筛选")
                     break
 

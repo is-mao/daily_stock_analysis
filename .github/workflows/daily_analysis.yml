@@ -17,8 +17,8 @@ on:
           - full          # 完整分析（股票+大盘）
           - market-only   # 仅大盘复盘
           - stocks-only   # 仅股票分析
-          - selection-only # 仅股票精选
-          - quickly-selection-only # 快速股票精选（使用EFinance）
+          - selection-only # 仅股票精选（标准模式，~200只股票，20-40分钟）
+          - quickly-selection-only # 快速股票精选（使用EFinance，~50只股票，5-10分钟）
 
 jobs:
   analyze:
@@ -110,7 +110,7 @@ jobs:
           elif [ "$MODE" = "selection-only" ]; then
             python main.py --stock-selection
           elif [ "$MODE" = "quickly-selection-only" ]; then
-            python main.py --stock-selection --data-source efinance
+            python main.py --stock-selection --data-source efinance --selection-count 10 --selection-strategy trend_following
           else
             python main.py
           fi

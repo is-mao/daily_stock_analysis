@@ -563,6 +563,118 @@ class SinaFetcher(BaseFetcher):
 
         return result
 
+    def get_daily_data(self, stock_code: str, days: int = 60) -> Optional[pd.DataFrame]:
+        """
+        获取日线数据 - 新浪财经历史K线API
+
+        新浪财经提供完整的历史K线数据API，支持多种时间周期
+
+        Args:
+            stock_code: 股票代码
+            days: 历史数据天数（实际返回条数可能略有不同）
+
+        Returns:
+            包含日线数据的DataFrame，列名符合标准格式
+        """
+        try:
+            # 防封禁策略
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+
+            # 转换代码格式
+            sina_code = self._convert_stock_code(stock_code)
+
+            # 构建API URL - 使用新浪历史K线数据接口
+            api_url = (
+                f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                f"CN_MarketData.getKLineData?symbol={sina_code}&scale=240&ma=no&datalen={days}"
+            )
+
+            logger.info(f"[API调用] 新浪财经历史K线: {sina_code}")
+
+            import time as _time
+
+            api_start = _time.time()
+
+            # 调用新浪历史K线API
+            response = self.session.get(api_url, timeout=10)
+            response.raise_for_status()
+
+            api_elapsed = _time.time() - api_start
+
+            # 解析返回数据
+            content = response.text.strip()
+            if not content or 'null' in content or len(content) < 10:
+                raise DataFetchError(f"新浪API未找到股票 {stock_code} 的历史数据")
+
+            # 解析JSON数据
+            import json
+
+            try:
+                kline_data = json.loads(content)
+                if not isinstance(kline_data, list) or len(kline_data) == 0:
+                    raise DataFetchError(f"新浪API返回的历史数据格式错误")
+
+                # 转换为DataFrame
+                df_data = []
+                for item in kline_data:
+                    try:
+                        # 新浪API返回格式：{"day":"2025-10-27","open":"1440.000","high":"1452.490","low":"1435.990","close":"1440.410","volume":"3710239"}
+                        row = {
+                            'date': item['day'],
+                            'open': float(item['open']),
+                            'high': float(item['high']),
+                            'low': float(item['low']),
+                            'close': float(item['close']),
+                            'volume': int(item['volume']),
+                            'amount': 0.0,  # 新浪API不提供成交额，设为0
+                            'pct_chg': 0.0,  # 涨跌幅需要计算
+                        }
+                        df_data.append(row)
+                    except (KeyError, ValueError, TypeError) as e:
+                        logger.warning(f"解析K线数据项失败: {item}, 错误: {e}")
+                        continue
+
+                if not df_data:
+                    raise DataFetchError(f"新浪API历史数据解析后为空")
+
+                # 创建DataFrame
+                df = pd.DataFrame(df_data)
+
+                # 确保日期格式正确
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.sort_values('date').reset_index(drop=True)
+
+                # 计算涨跌幅
+                if len(df) > 1:
+                    df['pct_chg'] = df['close'].pct_change() * 100
+                    df['pct_chg'].fillna(0, inplace=True)
+
+                # 标准化数据
+                df = self._normalize_data(df, stock_code)
+
+                logger.info(
+                    f"[API返回] 新浪财经历史K线 成功: {stock_code} 获取{len(df)}条数据, 耗时 {api_elapsed:.3f}s"
+                )
+                logger.info(
+                    f"[数据范围] {df['date'].min().strftime('%Y-%m-%d')} ~ {df['date'].max().strftime('%Y-%m-%d')}"
+                )
+
+                return df
+
+            except json.JSONDecodeError as e:
+                raise DataFetchError(f"新浪API历史数据JSON解析失败: {e}")
+
+        except Exception as e:
+            error_msg = str(e).lower()
+
+            # 检测反爬封禁
+            if any(keyword in error_msg for keyword in ['banned', 'blocked', '频率', 'rate', '限制', '403', '429']):
+                logger.warning(f"检测到可能被封禁: {e}")
+                raise RateLimitError(f"新浪API可能被限流: {e}") from e
+
+            raise DataFetchError(f"新浪API获取历史数据失败: {e}") from e
+
     def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
         """
         获取增强数据（实时行情为主）

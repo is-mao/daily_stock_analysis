@@ -8,7 +8,7 @@
 
 | 数据源 | 优先级 | 速度 | 实时行情 | 基本面数据 | GitHub Actions模式 | 特点 |
 |--------|--------|------|----------|------------|-------------------|------|
-| **SinaFetcher** | 0.1 | ⚡⚡⚡ | ✅ | ✅(构造) | `sina-selection-only` | 极速，毫秒级响应 |
+| **SinaFetcher** | 0.1 | ⚡⚡⚡ | ✅ | ✅ | `sina-selection-only` | 极速，毫秒级响应，完整历史数据 |
 | **TencentFetcher** | 0 | ⚡⚡⚡ | ✅ | ✅(构造) | `tencent-selection-only` | 最快，批量查询 |
 | **TonghuashunFetcher** | 0.5 | ⚡⚡ | ✅ | ✅(构造) | `tonghuashun-selection-only` | 快速，稳定性好 |
 | **TushareFetcher** | 2 | ⚡ | ✅ | ✅ | `tushare-selection-only` | 专业，需Token |
@@ -23,9 +23,9 @@
 适合日常快速筛选，**已优化性能，预过滤不可交易股票**：
 
 ```yaml
-# 新浪极速模式（最快）
+# 新浪极速模式（最快，完整数据）
 mode: sina-selection-only
-# 特点：毫秒级响应，~10只股票，1.5-4分钟（已优化25%性能）
+# 特点：毫秒级响应，完整历史数据，~10只股票，1.5-3分钟
 
 # 腾讯极速模式（次快）  
 mode: tencent-selection-only

@@ -5,9 +5,9 @@
 ### ✨ 新增功能
 
 #### ⚡ 快速股票精选模式
-- **新增GitHub Actions模式**: `quickly-selection-only`
+- **新增GitHub Actions模式**: `efinance-selection-only`
 - **指定数据源**: 使用EFinance数据源（速度最快）
-- **预期运行时间**: 10-20分钟（相比标准模式的20-40分钟）
+- **预期运行时间**: 5-10分钟（相比标准模式的20-40分钟）
 - **数据质量**: 保持5星级数据质量和稳定性
 
 #### 🔧 技术实现
@@ -19,7 +19,7 @@
 
 ##### GitHub Actions新模式
 ```yaml
-quickly-selection-only # 快速股票精选（使用EFinance）
+efinance-selection-only # EFinance快速股票精选
 ```
 
 ##### 数据源优先级控制
@@ -33,12 +33,12 @@ selector.preferred_data_source = 'efinance'
 | 模式 | 数据源 | 预期时间 | 数据质量 | 稳定性 |
 |------|--------|----------|----------|--------|
 | `selection-only` | 自动选择 | 20-40分钟 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| `quickly-selection-only` | EFinance | 10-20分钟 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| `efinance-selection-only` | EFinance | 5-10分钟 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 
 ### 🎯 使用方式
 
 #### GitHub Actions
-1. 选择 `quickly-selection-only` 模式
+1. 选择 `efinance-selection-only` 模式
 2. 系统自动使用EFinance数据源
 3. 享受更快的分析速度
 
@@ -53,7 +53,7 @@ python main.py --stock-selection --data-source akshare
 
 ### 💡 推荐使用场景
 
-- **日常快速分析**: 使用 `quickly-selection-only`
+- **日常快速分析**: 使用 `efinance-selection-only`
 - **深度分析验证**: 使用 `selection-only`
 - **数据源故障**: 手动指定备选数据源
 
@@ -65,7 +65,7 @@ python main.py --stock-selection --data-source akshare
 
 #### 🎯 二次筛选：可操作股票推荐
 - **新增逻辑**: 在精选结果基础上，再次筛选出可直接操作的股票
-- **过滤规则**: 排除创业板(300开头)和科创板(688开头)股票
+- **过滤规则**: 排除创业板(300/301开头)、科创板(688开头)和存托凭证(920开头)股票
 - **推荐数量**: 前20只可操作股票
 - **通知优化**: 在推送消息中突出显示可操作股票
 
@@ -75,7 +75,7 @@ python main.py --stock-selection --data-source akshare
 原始股票池(200-400只) 
     ↓ 多维度评分筛选
 精选股票(20只) 
-    ↓ 二次筛选(排除300/688)
+    ↓ 二次筛选(排除300/301/688/920)
 可操作股票(前20只)
 ```
 
@@ -84,7 +84,7 @@ python main.py --stock-selection --data-source akshare
 #### 新增方法
 ```python
 def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[StockScore]:
-    """二次筛选：过滤掉创业板(300)和科创板(688)股票"""
+    """二次筛选：过滤掉创业板(300/301)、科创板(688)和存托凭证(920)股票"""
 ```
 
 #### 报告格式优化
@@ -101,7 +101,7 @@ def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[St
 
 #### 报告示例
 ```markdown
-## 🎯 可操作股票推荐 (前20只，已排除创业板300/科创板688)
+## 🎯 可操作股票推荐 (前20只，已排除创业板300/301/科创板688/存托凭证920)
 
 *以下股票可直接操作，无需担心交易限制*
 
@@ -249,8 +249,7 @@ market_cap_range = (50e8, 5000e8)  # 市值范围
 
 ### 🧪 测试验证
 
-#### 逻辑测试
-- 创建 `test_stock_selection_logic.py`
+#### 逻辑验证
 - 验证热点板块获取逻辑
 - 性能对比分析
 

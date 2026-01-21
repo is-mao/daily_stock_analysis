@@ -32,6 +32,7 @@ from storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.akshare_fetcher import AkshareFetcher
 from analyzer import GeminiAnalyzer, AnalysisResult
+from analyzers.chanlun_analyzer import analyze_stock_chanlun
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,14 @@ class StockScore:
     reason: str = ""
     risk_warning: str = ""
 
+    # 技术分析详情
+    technical_details: Dict[str, Any] = None
+
+    def __post_init__(self):
+        """初始化后处理"""
+        if self.technical_details is None:
+            self.technical_details = {}
+
     def get_emoji(self) -> str:
         """获取推荐级别对应的emoji"""
         emoji_map = {
@@ -118,11 +127,13 @@ class StockSelector:
         self.config = config or get_config()
         self.db = get_db()
         self.fetcher_manager = DataFetcherManager()
-        self.akshare_fetcher = AkshareFetcher()
         self.analyzer = GeminiAnalyzer()
 
         # 数据源配置
         self.preferred_data_source = 'auto'  # 默认自动选择
+
+        # 创建备用的AkShare实例（仅在其他数据源都失败时使用）
+        self._akshare_fetcher = AkshareFetcher()
 
         # 快速模式配置
         self.fast_mode = fast_mode
@@ -137,6 +148,143 @@ class StockSelector:
 
         logger.info("股票精选器初始化完成")
 
+    def _get_preferred_fetcher(self):
+        """
+        根据preferred_data_source获取对应的数据源实例
+
+        Returns:
+            对应的数据源实例
+        """
+        if self.preferred_data_source == 'sina':
+            from data_provider.sina_fetcher import SinaFetcher
+
+            return SinaFetcher()
+        elif self.preferred_data_source == 'tencent':
+            from data_provider.tencent_fetcher import TencentFetcher
+
+            return TencentFetcher()
+        elif self.preferred_data_source == 'tonghuashun':
+            from data_provider.tonghuashun_fetcher import TonghuashunFetcher
+
+            return TonghuashunFetcher()
+        elif self.preferred_data_source == 'efinance':
+            from data_provider.efinance_fetcher import EfinanceFetcher
+
+            return EfinanceFetcher()
+        elif self.preferred_data_source == 'akshare':
+            return self._akshare_fetcher
+        elif self.preferred_data_source == 'tushare':
+            from data_provider.tushare_fetcher import TushareFetcher
+
+            return TushareFetcher()
+        elif self.preferred_data_source == 'baostock':
+            from data_provider.baostock_fetcher import BaostockFetcher
+
+            return BaostockFetcher()
+        elif self.preferred_data_source == 'yfinance':
+            from data_provider.yfinance_fetcher import YfinanceFetcher
+
+            return YfinanceFetcher()
+        else:
+            # 默认使用数据源管理器
+            return None
+
+    def _get_realtime_quote(self, stock_code: str):
+        """
+        统一的实时行情获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            实时行情数据
+        """
+        try:
+            # 优先使用指定的数据源
+            preferred_fetcher = self._get_preferred_fetcher()
+            if preferred_fetcher and hasattr(preferred_fetcher, 'get_realtime_quote'):
+                quote = preferred_fetcher.get_realtime_quote(stock_code)
+                if quote:
+                    logger.debug(f"[{stock_code}] 使用 {preferred_fetcher.name} 获取实时行情成功")
+                    return quote
+
+            # 备选：使用AkShare
+            logger.debug(f"[{stock_code}] 使用备选AkShare获取实时行情")
+            return self._akshare_fetcher.get_realtime_quote(stock_code)
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取实时行情失败: {e}")
+            return None
+
+    def _get_stock_name(self, stock_code: str) -> str:
+        """
+        统一的股票名称获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            股票名称
+        """
+        try:
+            # 优先从实时行情获取
+            quote = self._get_realtime_quote(stock_code)
+            if quote and hasattr(quote, 'name') and quote.name:
+                return quote.name
+
+            # 备选：使用AkShare
+            return self._akshare_fetcher.get_stock_name(stock_code) or f"股票{stock_code}"
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取股票名称失败: {e}")
+            return f"股票{stock_code}"
+
+    def _get_fundamental_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        统一的基本面数据获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            基本面数据字典
+        """
+        try:
+            # 优先使用指定的数据源
+            preferred_fetcher = self._get_preferred_fetcher()
+            if preferred_fetcher and hasattr(preferred_fetcher, 'get_fundamental_data'):
+                data = preferred_fetcher.get_fundamental_data(stock_code)
+                if data:
+                    logger.debug(f"[{stock_code}] 使用 {preferred_fetcher.name} 获取基本面数据成功")
+                    return data
+
+            # 对于没有基本面数据的数据源（如新浪），尝试从实时行情构造基本面数据
+            if preferred_fetcher and hasattr(preferred_fetcher, 'get_realtime_quote'):
+                try:
+                    quote = preferred_fetcher.get_realtime_quote(stock_code)
+                    if quote:
+                        # 从实时行情构造基本面数据
+                        fundamental_data = {
+                            'pe_ratio': getattr(quote, 'pe_ratio', 0.0),
+                            'pb_ratio': getattr(quote, 'pb_ratio', 0.0),
+                            'total_mv': getattr(quote, 'total_mv', 0.0),
+                            'circ_mv': getattr(quote, 'circulation_mv', 0.0),
+                            'roe': 0.0,  # 新浪API不提供ROE
+                            'revenue_growth': 0.0,  # 新浪API不提供营收增长率
+                        }
+                        logger.debug(f"[{stock_code}] 使用 {preferred_fetcher.name} 实时行情构造基本面数据")
+                        return fundamental_data
+                except Exception as e:
+                    logger.debug(f"[{stock_code}] 从实时行情构造基本面数据失败: {e}")
+
+            # 备选：使用AkShare
+            logger.debug(f"[{stock_code}] 使用备选AkShare获取基本面数据")
+            return self._akshare_fetcher.get_fundamental_data(stock_code)
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取基本面数据失败: {e}")
+            return {}
+
     def get_stock_pool(self) -> List[str]:
         """
         获取股票池 - 优化版：只分析前20个热点板块，每个板块前20只股票
@@ -147,7 +295,16 @@ class StockSelector:
         try:
             logger.info("开始获取热点板块股票池...")
 
-            # 获取热点板块股票
+            # 🎯 关键优化：在指定数据源模式下，直接使用备选股票池
+            # 避免调用AkShare板块API，确保数据源一致性
+            if self.preferred_data_source != 'auto' and self.preferred_data_source != 'akshare':
+                logger.info(f"🚀 使用 {self.preferred_data_source} 数据源模式，直接使用备选股票池")
+                logger.info("   避免调用AkShare板块API，确保数据源一致性和性能")
+                fallback_pool = self._get_fallback_stock_pool()
+                logger.info(f"🎯 备选股票池获取成功，共 {len(fallback_pool)} 只可交易股票（已排除300/301/688/920）")
+                return fallback_pool
+
+            # 获取热点板块股票（仅在auto或akshare模式下）
             hot_sector_stocks = self._get_hot_sector_stocks()
             if hot_sector_stocks:
                 logger.info(f"热点板块股票池获取成功，共 {len(hot_sector_stocks)} 只股票")
@@ -169,9 +326,10 @@ class StockSelector:
         1. 获取概念板块涨跌幅排行
         2. 选择前20个热点板块
         3. 每个板块选择前20只股票（按涨跌幅或成交额排序）
+        4. **提前过滤掉创业板(300/301)、科创板(688)和存托凭证(920)股票**
 
         Returns:
-            股票代码列表
+            股票代码列表（已过滤不可交易股票）
         """
         try:
             import akshare as ak
@@ -191,6 +349,7 @@ class StockSelector:
             logger.info(f"选择前{sector_count}个热点板块: {list(hot_concepts['板块名称'])}")
 
             all_stocks = []
+            filtered_out_count = 0
 
             for idx, row in hot_concepts.iterrows():
                 concept_name = row['板块名称']
@@ -208,17 +367,37 @@ class StockSelector:
                     # 快速模式只选择前10只
                     stock_count = 10 if self.fast_mode else 20
                     top_stocks = concept_stocks_df.head(stock_count)
-                    stock_codes = top_stocks['代码'].tolist()
 
-                    logger.info(f"板块 [{concept_name}] 获取 {len(stock_codes)} 只股票")
-                    all_stocks.extend(stock_codes)
+                    # **关键优化：提前过滤不可交易股票**
+                    tradeable_stocks = []
+                    for _, stock_row in top_stocks.iterrows():
+                        code = stock_row['代码']
+                        # 过滤掉创业板(300/301)、科创板(688)和存托凭证(920)
+                        if (
+                            code.startswith('300')
+                            or code.startswith('301')
+                            or code.startswith('688')
+                            or code.startswith('920')
+                        ):
+                            filtered_out_count += 1
+                            continue
+                        tradeable_stocks.append(code)
+
+                    logger.info(
+                        f"板块 [{concept_name}] 获取 {len(tradeable_stocks)} 只可交易股票（过滤掉 {len(top_stocks) - len(tradeable_stocks)} 只）"
+                    )
+                    all_stocks.extend(tradeable_stocks)
 
                     # 防止请求过快，快速模式减少延时
                     sleep_time = random.uniform(0.3, 0.8) if self.fast_mode else random.uniform(1, 2)
                     time.sleep(sleep_time)
 
                 except Exception as e:
-                    logger.error(f"获取板块 [{concept_name}] 股票失败: {e}")
+                    error_msg = str(e)
+                    if 'Connection' in error_msg or 'timeout' in error_msg.lower() or 'Remote end closed' in error_msg:
+                        logger.warning(f"获取板块 [{concept_name}] 股票时网络连接问题: {error_msg[:100]}")
+                    else:
+                        logger.error(f"获取板块 [{concept_name}] 股票失败: {e}")
                     continue
 
             # 去重
@@ -230,7 +409,10 @@ class StockSelector:
                 unique_stocks = unique_stocks[:50]
                 logger.info(f"🚀 快速模式：股票池限制为 {len(unique_stocks)} 只")
 
-            logger.info(f"热点板块股票池构建完成，去重后共 {len(unique_stocks)} 只股票")
+            logger.info(f"🎯 热点板块股票池构建完成：")
+            logger.info(f"   - 去重后共 {len(unique_stocks)} 只可交易股票")
+            logger.info(f"   - 提前过滤掉 {filtered_out_count} 只不可交易股票（300/301/688/920）")
+            logger.info(f"   - 大幅提升分析效率，避免无效计算")
 
             return unique_stocks
 
@@ -240,172 +422,149 @@ class StockSelector:
 
     def _get_fallback_stock_pool(self) -> List[str]:
         """
-        备选股票池：精选各行业龙头股
+        备选股票池：精选各行业龙头股（已过滤不可交易股票）
 
         当热点板块获取失败时使用，包含各行业代表性股票
+        **注意：已排除创业板(300/301)、科创板(688)和存托凭证(920)股票**
         """
         # 快速模式使用更小的备选池
         if self.fast_mode:
             return [
-                # 核心龙头股（快速模式精选）
+                # 核心龙头股（快速模式精选，已排除300/301/688/920）
                 '600519',  # 贵州茅台
-                '300750',  # 宁德时代
                 '000858',  # 五粮液
                 '002594',  # 比亚迪
                 '600036',  # 招商银行
                 '000001',  # 平安银行
                 '601012',  # 隆基绿能
-                '688599',  # 天合光能
                 '002460',  # 赣锋锂业
-                '300014',  # 亿纬锂能
                 '600809',  # 山西汾酒
                 '000799',  # 酒鬼酒
                 '002304',  # 洋河股份
                 '000596',  # 古井贡酒
                 '601166',  # 兴业银行
+                '600000',  # 浦发银行
+                '601328',  # 交通银行
+                '000002',  # 万科A
             ]
 
         return [
-            # 白酒龙头
-            '600519',
-            '000858',
-            '000596',
-            '002304',
-            '600809',
-            '000799',
-            # 新能源汽车
-            '300750',
-            '002594',
-            '601012',
-            '688599',
-            '002460',
-            '300014',
-            # 银行
-            '600036',
-            '000001',
-            '601166',
-            '600000',
-            '601328',
-            '000002',
-            # 科技龙头
-            '000002',
-            '002415',
-            '300059',
-            '002475',
-            '600570',
-            '002241',
-            # 医药生物
-            '600276',
-            '000661',
-            '300760',
-            '688111',
-            '300347',
-            '002821',
-            # 消费品
-            '000333',
-            '600887',
-            '002714',
-            '603288',
-            '600519',
-            '000568',
-            # 地产建筑
-            '600048',
-            '001979',
-            '000069',
-            '600340',
-            '000002',
-            '601668',
-            # 军工
-            '600893',
-            '002013',
-            '000768',
-            '600038',
-            '002179',
-            '600150',
-            # 化工
-            '600309',
-            '002648',
-            '000792',
-            '600426',
-            '002601',
-            '600160',
-            # 机械设备
-            '000157',
-            '002008',
-            '300014',
-            '002202',
-            '000425',
-            '600031',
-            # 电力设备
-            '300274',
-            '002129',
-            '300316',
-            '688005',
-            '002459',
-            '300450',
-            # 食品饮料
-            '000858',
-            '600887',
-            '000895',
-            '002568',
-            '600779',
-            '000729',
-            # 家电
-            '000333',
-            '000651',
-            '002032',
-            '600690',
-            '002050',
-            '000921',
-            # 汽车
-            '601633',
-            '000625',
-            '600104',
-            '002594',
-            '000800',
-            '601238',
-            # 钢铁有色
-            '600019',
-            '000709',
-            '002460',
-            '600362',
-            '000831',
-            '002466',
-            # 煤炭石油
-            '601088',
-            '600188',
-            '601898',
-            '600348',
-            '000983',
-            '600123',
-            # 交通运输
-            '600115',
-            '600026',
-            '000089',
-            '600009',
-            '002352',
-            '600317',
-            # 通信
-            '000063',
-            '600050',
-            '000938',
-            '002415',
-            '600498',
-            '000997',
-            # 计算机
-            '002415',
-            '300059',
-            '002410',
-            '300496',
-            '002230',
-            '300033',
-            # 传媒
-            '300251',
-            '002555',
-            '300413',
-            '000156',
-            '002739',
-            '300364',
+            # 白酒龙头（已排除300/301/688/920）
+            '600519',  # 贵州茅台
+            '000858',  # 五粮液
+            '000596',  # 古井贡酒
+            '002304',  # 洋河股份
+            '600809',  # 山西汾酒
+            '000799',  # 酒鬼酒
+            # 新能源汽车（已排除300/301/688/920）
+            '002594',  # 比亚迪
+            '601012',  # 隆基绿能
+            '002460',  # 赣锋锂业
+            # 银行（已排除300/301/688/920）
+            '600036',  # 招商银行
+            '000001',  # 平安银行
+            '601166',  # 兴业银行
+            '600000',  # 浦发银行
+            '601328',  # 交通银行
+            '000002',  # 万科A
+            # 科技龙头（已排除300/301/688/920）
+            '002415',  # 海康威视
+            '600570',  # 恒生电子
+            '002241',  # 歌尔股份
+            # 医药生物（已排除300/301/688/920）
+            '600276',  # 恒瑞医药
+            '000661',  # 长春高新
+            '002821',  # 凯莱英
+            # 消费品（已排除300/301/688/920）
+            '000333',  # 美的集团
+            '600887',  # 伊利股份
+            '002714',  # 牧原股份
+            '603288',  # 海天味业
+            '000568',  # 泸州老窖
+            # 地产建筑（已排除300/301/688/920）
+            '600048',  # 保利发展
+            '001979',  # 招商蛇口
+            '000069',  # 华侨城A
+            '600340',  # 华夏幸福
+            '601668',  # 中国建筑
+            # 军工（已排除300/301/688/920）
+            '600893',  # 航发动力
+            '002013',  # 中航机电
+            '600038',  # 中直股份
+            '002179',  # 中航光电
+            '600150',  # 中国船舶
+            # 化工（已排除300/301/688/920）
+            '002648',  # 卫星石化
+            '000792',  # 盐湖股份
+            '600426',  # 华鲁恒升
+            '002601',  # 龙佰集团
+            '600160',  # 巨化股份
+            # 机械设备（已排除300/301/688/920）
+            '000157',  # 中联重科
+            '002008',  # 大族激光
+            '002202',  # 金风科技
+            '000425',  # 徐工机械
+            '600031',  # 三一重工
+            # 电力设备（已排除300/301/688/920）
+            '002129',  # 中环股份
+            '002459',  # 晶澳科技
+            # 食品饮料（已排除300/301/688/920）
+            '000858',  # 五粮液
+            '600887',  # 伊利股份
+            '000895',  # 双汇发展
+            '002568',  # 百润股份
+            '600779',  # 水井坊
+            '000729',  # 燕京啤酒
+            # 家电（已排除300/301/688/920）
+            '000333',  # 美的集团
+            '000651',  # 格力电器
+            '002032',  # 苏泊尔
+            '600690',  # 海尔智家
+            '002050',  # 三花智控
+            '000921',  # 海信家电
+            # 汽车（已排除300/301/688/920）
+            '601633',  # 长城汽车
+            '000625',  # 长安汽车
+            '600104',  # 上汽集团
+            '002594',  # 比亚迪
+            '000800',  # 一汽解放
+            '601238',  # 广汽集团
+            # 钢铁有色（已排除300/301/688/920）
+            '600019',  # 宝钢股份
+            '000709',  # 河钢股份
+            '002460',  # 赣锋锂业
+            '600362',  # 江西铜业
+            '000831',  # 五矿稀土
+            '002466',  # 天齐锂业
+            # 煤炭石油（已排除300/301/688/920）
+            '601088',  # 中国神华
+            '600188',  # 兖矿能源
+            '601898',  # 中煤能源
+            '600348',  # 阳泉煤业
+            '000983',  # 西山煤电
+            '600123',  # 兰花科创
+            # 交通运输（已排除300/301/688/920）
+            '600115',  # 东方航空
+            '600026',  # 中远海能
+            '000089',  # 深圳机场
+            '600009',  # 上海机场
+            '002352',  # 顺丰控股
+            '600317',  # 营口港
+            # 通信（已排除300/301/688/920）
+            '000063',  # 中兴通讯
+            '600050',  # 中国联通
+            '000938',  # 紫光股份
+            '002415',  # 海康威视
+            '600498',  # 烽火通信
+            '000997',  # 新大陆
+            # 计算机（已排除300/301/688/920）
+            '002415',  # 海康威视
+            '002410',  # 广联达
+            '002230',  # 科大讯飞
+            # 传媒（已排除300/301/688/920）
+            '002555',  # 三七互娱
+            '000156',  # 华数传媒
+            '002739',  # 万达电影
         ]
 
     def calculate_technical_score(self, df: pd.DataFrame, code: str) -> Tuple[float, Dict[str, Any]]:
@@ -413,10 +572,11 @@ class StockSelector:
         计算技术面评分
 
         评分维度：
-        1. 均线排列 (30分)
-        2. 乖离率安全性 (25分)
-        3. 量能配合 (25分)
-        4. K线形态 (20分)
+        1. 均线排列 (25分)
+        2. 乖离率安全性 (20分)
+        3. 量能配合 (20分)
+        4. K线形态 (15分)
+        5. 缠论分析 (20分) - 新增
 
         Args:
             df: 股票历史数据
@@ -446,12 +606,12 @@ class StockSelector:
             score = 0.0
             details = {'current_price': current_price, 'ma5': ma5, 'ma10': ma10, 'ma20': ma20, 'ma60': ma60}
 
-            # 1. 均线排列评分 (30分)
+            # 1. 均线排列评分 (25分)
             ma_score = 0
             if ma5 > ma10 > ma20:  # 多头排列
-                ma_score = 30
+                ma_score = 25
             elif ma5 > ma10:  # 短期多头
-                ma_score = 20
+                ma_score = 18
             elif ma5 < ma10 < ma20:  # 空头排列
                 ma_score = 0
             else:  # 震荡
@@ -460,60 +620,108 @@ class StockSelector:
             score += ma_score
             details['ma_alignment'] = "多头排列" if ma5 > ma10 > ma20 else "震荡" if ma5 > ma10 else "空头排列"
 
-            # 2. 乖离率安全性 (25分)
+            # 2. 乖离率安全性 (20分)
             bias_ma5 = (current_price - ma5) / ma5 * 100
             bias_ma20 = (current_price - ma20) / ma20 * 100
 
             bias_score = 0
             if -2 <= bias_ma5 <= 3:  # 乖离率安全区间
-                bias_score = 25
+                bias_score = 20
             elif -5 <= bias_ma5 <= 5:  # 可接受区间
-                bias_score = 15
+                bias_score = 12
             elif bias_ma5 > 8:  # 严重偏离，追高风险
                 bias_score = 0
             else:  # 超跌
-                bias_score = 10
+                bias_score = 8
 
             score += bias_score
             details['bias_ma5'] = bias_ma5
             details['bias_ma20'] = bias_ma20
 
-            # 3. 量能配合 (25分)
+            # 3. 量能配合 (20分)
             volume_ma5 = df['volume'].rolling(5).mean().iloc[-1]
             volume_ma20 = df['volume'].rolling(20).mean().iloc[-1]
             current_volume = latest['volume']
 
             volume_score = 0
             if current_volume > volume_ma5 * 1.5:  # 明显放量
-                volume_score = 25
-            elif current_volume > volume_ma5:  # 温和放量
                 volume_score = 20
+            elif current_volume > volume_ma5:  # 温和放量
+                volume_score = 16
             elif current_volume > volume_ma20 * 0.8:  # 正常量能
-                volume_score = 15
+                volume_score = 12
             else:  # 缩量
-                volume_score = 5
+                volume_score = 4
 
             score += volume_score
             details['volume_ratio_calc'] = current_volume / volume_ma5
 
-            # 4. K线形态 (20分)
+            # 4. K线形态 (15分)
             pattern_score = 0
             recent_5 = df.tail(5)
 
             # 连续上涨
             if (recent_5['close'] > recent_5['close'].shift(1)).sum() >= 3:
-                pattern_score = 20
+                pattern_score = 15
             # 震荡上行
             elif recent_5['close'].iloc[-1] > recent_5['close'].iloc[0]:
-                pattern_score = 15
+                pattern_score = 12
             # 横盘整理
             elif abs(recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0] < 0.03:
-                pattern_score = 10
+                pattern_score = 8
             else:
-                pattern_score = 5
+                pattern_score = 4
 
             score += pattern_score
-            details['pattern'] = "上涨趋势" if pattern_score >= 15 else "震荡" if pattern_score >= 10 else "下跌趋势"
+            details['pattern'] = "上涨趋势" if pattern_score >= 12 else "震荡" if pattern_score >= 8 else "下跌趋势"
+
+            # 5. 缠论分析 (20分) - 新增
+            chanlun_score = 0
+            chanlun_details = {}
+
+            try:
+                # 进行缠论分析
+                chanlun_result = analyze_stock_chanlun(df)
+                if chanlun_result:
+                    # 基于缠论评分
+                    chanlun_base_score = chanlun_result.get('chanlun_score', 50)
+                    chanlun_score = (chanlun_base_score - 50) * 0.4  # 转换为-20到20分
+                    chanlun_score = max(0, min(20, chanlun_score + 10))  # 调整为0-20分
+
+                    # 买卖点加分
+                    buy_sell_points = chanlun_result.get('buy_sell_points', [])
+                    recent_buy_points = [p for p in buy_sell_points if '买' in p.type.value and p.index >= len(df) - 5]
+                    if recent_buy_points:
+                        chanlun_score = min(20, chanlun_score + len(recent_buy_points) * 2)
+
+                    # 背驰分析
+                    beichi = chanlun_result.get('beichi_analysis', {})
+                    if beichi.get('has_beichi') and beichi.get('type') == '下跌背驰':
+                        chanlun_score = min(20, chanlun_score + 5)
+
+                    chanlun_details = {
+                        'trend_type': (
+                            chanlun_result.get('trend_type', '').value
+                            if hasattr(chanlun_result.get('trend_type', ''), 'value')
+                            else str(chanlun_result.get('trend_type', ''))
+                        ),
+                        'zhongshu_count': len(chanlun_result.get('zhongshus', [])),
+                        'buy_points': len([p for p in buy_sell_points if '买' in p.type.value]),
+                        'sell_points': len([p for p in buy_sell_points if '卖' in p.type.value]),
+                        'has_beichi': beichi.get('has_beichi', False),
+                        'beichi_type': beichi.get('type', '无'),
+                    }
+                else:
+                    chanlun_score = 10  # 默认中性分数
+
+            except Exception as e:
+                logger.warning(f"[{code}] 缠论分析失败: {e}")
+                chanlun_score = 10  # 默认中性分数
+                chanlun_details = {'error': str(e)}
+
+            score += chanlun_score
+            details['chanlun'] = chanlun_details
+            details['chanlun_score'] = chanlun_score
 
             return min(score, 100.0), details
 
@@ -537,8 +745,8 @@ class StockSelector:
             Tuple[基本面评分, 详细指标]
         """
         try:
-            # 获取基本面数据
-            fundamental_data = self.akshare_fetcher.get_fundamental_data(code)
+            # 获取基本面数据 - 使用统一数据获取方法
+            fundamental_data = self._get_fundamental_data(code)
             if not fundamental_data:
                 return 50.0, {}  # 默认中性评分
 
@@ -644,7 +852,7 @@ class StockSelector:
 
             # 2. 获取实时数据补充流动性指标
             try:
-                realtime_quote = self.akshare_fetcher.get_realtime_quote(code)
+                realtime_quote = self._get_realtime_quote(code)
                 if realtime_quote:
                     turnover_rate = realtime_quote.turnover_rate
                     volume_ratio = realtime_quote.volume_ratio
@@ -701,27 +909,85 @@ class StockSelector:
             logger.info(f"开始评估股票 {code}")
 
             # 获取历史数据（支持指定数据源）
-            if self.preferred_data_source == 'efinance':
-                # 使用EFinance数据源（最快）
-                from data_provider.efinance_fetcher import EfinanceFetcher
+            try:
+                if self.preferred_data_source == 'sina':
+                    # 使用新浪数据源（极速）
+                    from data_provider.sina_fetcher import SinaFetcher
 
-                efinance_fetcher = EfinanceFetcher()
-                df, source = efinance_fetcher.get_daily_data(code, days=60)
-                logger.info(f"[{code}] 使用EFinance数据源获取数据")
-            elif self.preferred_data_source == 'akshare':
-                # 使用AkShare数据源
-                df, source = self.akshare_fetcher.get_daily_data(code, days=60)
-                logger.info(f"[{code}] 使用AkShare数据源获取数据")
-            else:
-                # 使用默认的数据源管理器（自动选择）
-                df, source = self.fetcher_manager.get_daily_data(code, days=60)
+                    sina_fetcher = SinaFetcher()
+                    df = sina_fetcher.get_daily_data(code, days=60)
+                    source = "SinaFetcher"
+                    logger.info(f"[{code}] 使用新浪数据源获取数据")
+                elif self.preferred_data_source == 'tencent':
+                    # 使用腾讯数据源（最快）
+                    from data_provider.tencent_fetcher import TencentFetcher
+
+                    tencent_fetcher = TencentFetcher()
+                    df = tencent_fetcher.get_daily_data(code, days=60)
+                    source = "TencentFetcher"
+                    logger.info(f"[{code}] 使用腾讯数据源获取数据")
+                elif self.preferred_data_source == 'tonghuashun':
+                    # 使用同花顺数据源（快速）
+                    from data_provider.tonghuashun_fetcher import TonghuashunFetcher
+
+                    tonghuashun_fetcher = TonghuashunFetcher()
+                    df = tonghuashun_fetcher.get_daily_data(code, days=60)
+                    source = "TonghuashunFetcher"
+                    logger.info(f"[{code}] 使用同花顺数据源获取数据")
+                elif self.preferred_data_source == 'efinance':
+                    # 使用EFinance数据源（最快）
+                    from data_provider.efinance_fetcher import EfinanceFetcher
+
+                    efinance_fetcher = EfinanceFetcher()
+                    df = efinance_fetcher.get_daily_data(code, days=60)
+                    source = "EfinanceFetcher"
+                    logger.info(f"[{code}] 使用EFinance数据源获取数据")
+                elif self.preferred_data_source == 'akshare':
+                    # 使用AkShare数据源
+                    df = self._akshare_fetcher.get_daily_data(code, days=60)
+                    source = "AkshareFetcher"
+                    logger.info(f"[{code}] 使用AkShare数据源获取数据")
+                elif self.preferred_data_source == 'tushare':
+                    # 使用Tushare数据源（专业）
+                    from data_provider.tushare_fetcher import TushareFetcher
+
+                    tushare_fetcher = TushareFetcher()
+                    df = tushare_fetcher.get_daily_data(code, days=60)
+                    source = "TushareFetcher"
+                    logger.info(f"[{code}] 使用Tushare数据源获取数据")
+                elif self.preferred_data_source == 'baostock':
+                    # 使用Baostock数据源（稳定）
+                    from data_provider.baostock_fetcher import BaostockFetcher
+
+                    baostock_fetcher = BaostockFetcher()
+                    df = baostock_fetcher.get_daily_data(code, days=60)
+                    source = "BaostockFetcher"
+                    logger.info(f"[{code}] 使用Baostock数据源获取数据")
+                elif self.preferred_data_source == 'yfinance':
+                    # 使用Yahoo Finance数据源（国际）
+                    from data_provider.yfinance_fetcher import YfinanceFetcher
+
+                    yfinance_fetcher = YfinanceFetcher()
+                    df = yfinance_fetcher.get_daily_data(code, days=60)
+                    source = "YfinanceFetcher"
+                    logger.info(f"[{code}] 使用Yahoo Finance数据源获取数据")
+                else:
+                    # 使用默认的数据源管理器（自动选择）
+                    df, source = self.fetcher_manager.get_daily_data(code, days=60)
+            except Exception as e:
+                error_msg = str(e)
+                if 'Connection' in error_msg or 'timeout' in error_msg.lower():
+                    logger.warning(f"[{code}] 数据获取网络超时，跳过: {error_msg[:100]}")
+                else:
+                    logger.warning(f"[{code}] 数据获取失败: {e}")
+                return None
 
             if df is None or len(df) < 30:
-                logger.warning(f"[{code}] 历史数据不足，跳过评估")
+                logger.warning(f"[{code}] 历史数据不足({len(df) if df is not None else 0}条)，跳过评估")
                 return None
 
             # 获取股票名称
-            stock_name = self.akshare_fetcher.get_stock_name(code)
+            stock_name = self._get_stock_name(code)
             if not stock_name:
                 stock_name = f"股票{code}"
 
@@ -807,13 +1073,18 @@ class StockSelector:
                 target_price=target_price,
                 reason=reason,
                 risk_warning=risk_warning,
+                technical_details=tech_details,  # 保存技术分析详情
             )
 
             logger.info(f"[{code}] {stock_name} 评估完成: {total_score:.1f}分 ({recommend_level.value})")
             return stock_score
 
         except Exception as e:
-            logger.error(f"[{code}] 股票评估失败: {e}")
+            error_msg = str(e)
+            if 'Connection' in error_msg or 'timeout' in error_msg.lower():
+                logger.warning(f"[{code}] 网络连接问题，跳过评估: {error_msg[:100]}")
+            else:
+                logger.error(f"[{code}] 股票评估失败: {e}")
             return None
 
     def select_daily_stocks(
@@ -823,6 +1094,7 @@ class StockSelector:
         每日股票精选 - 优化版
 
         从热点板块中精选优质股票，大大减少分析时间
+        **关键优化：股票池构建时已预过滤不可交易股票，避免无效分析**
 
         Args:
             strategy: 筛选策略
@@ -833,9 +1105,9 @@ class StockSelector:
         """
         logger.info(f"开始每日股票精选，策略: {strategy.value}，最大数量: {max_stocks}")
 
-        # 获取热点板块股票池（最多400只）
+        # 获取热点板块股票池（已预过滤不可交易股票）
         stock_pool = self.get_stock_pool()
-        logger.info(f"热点板块股票池大小: {len(stock_pool)}")
+        logger.info(f"🎯 热点板块股票池大小: {len(stock_pool)} 只（已排除300/301/688/920）")
 
         if not stock_pool:
             logger.error("股票池为空，无法进行精选")
@@ -858,6 +1130,8 @@ class StockSelector:
 
         selected_stocks = []
         total_stocks = len(stock_pool)
+
+        logger.info(f"🚀 开始分析 {total_stocks} 只可交易股票（已优化，无需分析不可交易股票）")
 
         # 逐个评估股票
         for i, code in enumerate(stock_pool):
@@ -896,7 +1170,8 @@ class StockSelector:
         # 返回前N只
         result = selected_stocks[:max_stocks]
 
-        logger.info(f"股票精选完成！共筛选出 {len(result)} 只优质股票")
+        logger.info(f"🎉 股票精选完成！共筛选出 {len(result)} 只优质股票")
+        logger.info(f"⚡ 效率提升：预过滤避免了分析不可交易股票，大幅节省时间")
         if result:
             logger.info("精选结果预览:")
             for i, stock in enumerate(result[:5]):  # 显示前5只
@@ -904,7 +1179,7 @@ class StockSelector:
                     f"  {i+1}. {stock.name}({stock.code}): {stock.total_score:.1f}分 - {stock.recommend_level.value}"
                 )
 
-        # 二次筛选：过滤掉创业板(300)和科创板(688)，选出前20只可操作股票
+        # 二次筛选：选择前20只可操作股票（主要用于日志记录）
         tradeable_stocks = self._filter_tradeable_stocks(result)
 
         # 将可操作股票信息添加到结果中，用于通知
@@ -934,7 +1209,7 @@ class StockSelector:
             for code in stock_codes:
                 try:
                     # 获取实时行情（包含市值信息）
-                    quote = self.akshare_fetcher.get_realtime_quote(code)
+                    quote = self._get_realtime_quote(code)
                     if quote and quote.total_mv > 0:
                         # 市值范围：50亿-5000亿
                         market_cap_billion = quote.total_mv / 1e8  # 转换为亿元
@@ -958,38 +1233,42 @@ class StockSelector:
 
     def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[StockScore]:
         """
-        二次筛选：过滤掉创业板(300)和科创板(688)股票，选出前20只可操作股票
+        二次筛选：选出前20只可操作股票
+
+        注意：由于股票池构建时已经过滤掉创业板(300/301)、科创板(688)和存托凭证(920)，
+        这里主要是选择前20只股票并记录日志。
 
         Args:
-            selected_stocks: 初步精选的股票列表
+            selected_stocks: 初步精选的股票列表（已过滤不可交易股票）
 
         Returns:
             可操作的股票列表（最多20只）
         """
         try:
-            logger.info("开始二次筛选：过滤创业板和科创板股票...")
+            logger.info("开始二次筛选：选择前20只可操作股票...")
 
-            # 过滤掉创业板(300)和科创板(688)
+            # 由于股票池已经预过滤，这里主要是验证和选择前20只
             tradeable_stocks = []
-            filtered_out = []
+            unexpected_filtered = []
 
             for stock in selected_stocks:
                 code = stock.code
-                if code.startswith('300') or code.startswith('688'):
-                    filtered_out.append(f"{stock.name}({code})")
+                # 双重检查：理论上不应该有这些股票，但保险起见还是检查一下
+                if code.startswith('300') or code.startswith('301') or code.startswith('688') or code.startswith('920'):
+                    unexpected_filtered.append(f"{stock.name}({code})")
+                    logger.warning(f"⚠️  意外发现不可交易股票: {stock.name}({code})，已过滤")
                 else:
                     tradeable_stocks.append(stock)
 
-            # 记录过滤信息
-            if filtered_out:
-                logger.info(f"过滤掉创业板/科创板股票 {len(filtered_out)} 只: {', '.join(filtered_out[:5])}")
-                if len(filtered_out) > 5:
-                    logger.info(f"  还有 {len(filtered_out) - 5} 只...")
+            # 如果意外发现不可交易股票，记录警告
+            if unexpected_filtered:
+                logger.warning(f"⚠️  意外过滤掉 {len(unexpected_filtered)} 只股票: {', '.join(unexpected_filtered)}")
+                logger.warning("   这表明股票池预过滤可能存在问题，请检查热点板块获取逻辑")
 
             # 选择前20只可操作股票
             top_tradeable = tradeable_stocks[:20]
 
-            logger.info(f"二次筛选完成：可操作股票 {len(top_tradeable)} 只")
+            logger.info(f"✅ 二次筛选完成：可操作股票 {len(top_tradeable)} 只")
             if top_tradeable:
                 logger.info("🎯 前20只可操作股票:")
                 for i, stock in enumerate(top_tradeable):
@@ -1035,10 +1314,10 @@ class StockSelector:
         )
         report_lines.append("")
 
-        # 添加可操作股票专区（排除创业板300和科创板688）
+        # 添加可操作股票专区（排除创业板300/301、科创板688和存托凭证920）
         tradeable_stocks = getattr(self, '_tradeable_stocks', [])
         if tradeable_stocks:
-            report_lines.append("## 🎯 可操作股票推荐 (前20只，已排除创业板300/科创板688)")
+            report_lines.append("## 🎯 可操作股票推荐 (前20只，已排除创业板300/301/科创板688/存托凭证920)")
             report_lines.append("")
             report_lines.append("*以下股票可直接操作，无需担心交易限制*")
             report_lines.append("")
@@ -1056,6 +1335,26 @@ class StockSelector:
                     report_lines.append(
                         f"   📈 量比: {stock.volume_ratio:.2f} | 换手: {stock.turnover_rate:.2f}% | PE: {stock.pe_ratio:.1f}"
                     )
+
+                # 添加缠论分析简要信息
+                if stock.technical_details and 'chanlun' in stock.technical_details:
+                    chanlun_info = stock.technical_details['chanlun']
+                    if not chanlun_info.get('error'):
+                        chanlun_summary = []
+                        if chanlun_info.get('trend_type'):
+                            trend_emoji = {"上涨": "📈", "下跌": "📉", "盘整": "📊"}.get(
+                                chanlun_info['trend_type'], "📊"
+                            )
+                            chanlun_summary.append(f"{trend_emoji}{chanlun_info['trend_type']}")
+
+                        if chanlun_info.get('buy_points', 0) > 0:
+                            chanlun_summary.append(f"🟢{chanlun_info['buy_points']}买点")
+
+                        if chanlun_info.get('has_beichi') and "下跌" in chanlun_info.get('beichi_type', ''):
+                            chanlun_summary.append("💡下跌背驰")
+
+                        if chanlun_summary:
+                            report_lines.append(f"   🌊 缠论: {' '.join(chanlun_summary)}")
 
                 report_lines.append("")
 
@@ -1084,6 +1383,38 @@ class StockSelector:
                 report_lines.append(
                     f"**技术面**: {stock.technical_score:.1f}分 | **基本面**: {stock.fundamental_score:.1f}分 | **流动性**: {stock.liquidity_score:.1f}分"
                 )
+
+                # 缠论分析详情
+                if stock.technical_details and 'chanlun' in stock.technical_details:
+                    chanlun_info = stock.technical_details['chanlun']
+                    if not chanlun_info.get('error'):
+                        report_lines.append(f"**🌊 缠论分析**: {stock.technical_details.get('chanlun_score', 0):.1f}分")
+
+                        # 缠论详情
+                        chanlun_details = []
+                        if chanlun_info.get('trend_type'):
+                            trend_emoji = {"上涨": "📈", "下跌": "📉", "盘整": "📊"}.get(
+                                chanlun_info['trend_type'], "📊"
+                            )
+                            chanlun_details.append(f"{trend_emoji}{chanlun_info['trend_type']}")
+
+                        if chanlun_info.get('zhongshu_count', 0) > 0:
+                            chanlun_details.append(f"中枢{chanlun_info['zhongshu_count']}个")
+
+                        buy_points = chanlun_info.get('buy_points', 0)
+                        sell_points = chanlun_info.get('sell_points', 0)
+                        if buy_points > 0:
+                            chanlun_details.append(f"🟢买点{buy_points}个")
+                        if sell_points > 0:
+                            chanlun_details.append(f"🔴卖点{sell_points}个")
+
+                        if chanlun_info.get('has_beichi'):
+                            beichi_type = chanlun_info.get('beichi_type', '未知')
+                            beichi_emoji = "💡" if "下跌" in beichi_type else "⚠️"
+                            chanlun_details.append(f"{beichi_emoji}{beichi_type}")
+
+                        if chanlun_details:
+                            report_lines.append(f"   *{' | '.join(chanlun_details)}*")
 
                 # 关键指标
                 if stock.volume_ratio > 0:

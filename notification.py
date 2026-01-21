@@ -642,6 +642,40 @@ class NotificationService:
                         ]
                     )
 
+                # 缠论分析
+                chanlun_data = data_persp.get('chanlun_analysis', {})
+                if chanlun_data:
+                    trend_type = chanlun_data.get('trend_type', '未知')
+                    trend_emoji = {"上涨": "📈", "下跌": "📉", "盘整": "📊"}.get(trend_type, "📊")
+
+                    chanlun_score = chanlun_data.get('chanlun_score', 0)
+                    score_emoji = (
+                        "🔥"
+                        if chanlun_score >= 70
+                        else ("🟢" if chanlun_score >= 60 else ("🟡" if chanlun_score >= 40 else "🔴"))
+                    )
+
+                    chanlun_summary = []
+                    if chanlun_data.get('zhongshu_count', 0) > 0:
+                        chanlun_summary.append(f"中枢{chanlun_data['zhongshu_count']}个")
+                    if chanlun_data.get('buy_points_count', 0) > 0:
+                        chanlun_summary.append(f"🟢买点{chanlun_data['buy_points_count']}个")
+                    if chanlun_data.get('sell_points_count', 0) > 0:
+                        chanlun_summary.append(f"🔴卖点{chanlun_data['sell_points_count']}个")
+                    if chanlun_data.get('has_beichi'):
+                        beichi_type = chanlun_data.get('beichi_type', '未知')
+                        beichi_emoji = "💡" if "下跌" in beichi_type else "⚠️"
+                        chanlun_summary.append(f"{beichi_emoji}{beichi_type}")
+
+                    summary_text = " | ".join(chanlun_summary) if chanlun_summary else "无特殊信号"
+
+                    report_lines.extend(
+                        [
+                            f"**🌊 缠论**: {trend_emoji}{trend_type} | 评分 {score_emoji}{chanlun_score:.0f}/100 | {summary_text}",
+                            "",
+                        ]
+                    )
+
             # 舆情情报已移至顶部显示
 
             # ========== 作战计划 ==========

@@ -17,7 +17,7 @@ TushareFetcher - 备用数据源 1 (Priority 2)
 import logging
 import time
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
 import pandas as pd
 from tenacity import (
@@ -265,6 +265,191 @@ class TushareFetcher(BaseFetcher):
         df = df[existing_cols]
 
         return df
+
+    def get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取实时行情数据（Tushare Pro）
+
+        使用 daily_basic 接口获取最新的基本面数据
+        注意：Tushare 的实时数据可能有延迟
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            实时行情数据字典，获取失败返回 None
+        """
+        if self._api is None:
+            logger.warning("Tushare API 未初始化，无法获取实时行情")
+            return None
+
+        try:
+            # 速率限制检查
+            self._check_rate_limit()
+
+            # 转换代码格式
+            ts_code = self._convert_stock_code(stock_code)
+
+            # 获取最新交易日的基本面数据
+            today = datetime.now().strftime('%Y%m%d')
+
+            logger.info(f"[API调用] Tushare daily_basic({ts_code}) 获取实时行情...")
+
+            # 获取基本面数据（包含PE、PB等）
+            basic_df = self._api.daily_basic(
+                ts_code=ts_code,
+                trade_date=today,
+                fields='ts_code,trade_date,close,turnover_rate,volume_ratio,pe,pb,total_mv,circ_mv',
+            )
+
+            if basic_df.empty:
+                # 如果今天没有数据，尝试获取最近的数据
+                basic_df = self._api.daily_basic(
+                    ts_code=ts_code, fields='ts_code,trade_date,close,turnover_rate,volume_ratio,pe,pb,total_mv,circ_mv'
+                )
+                if not basic_df.empty:
+                    basic_df = basic_df.head(1)  # 取最新一条
+
+            if basic_df.empty:
+                logger.warning(f"[API返回] Tushare 未找到股票 {stock_code} 的基本面数据")
+                return None
+
+            row = basic_df.iloc[0]
+
+            # 构造实时行情数据
+            quote_data = {
+                'code': stock_code,
+                'name': f'股票{stock_code}',  # Tushare basic接口不返回名称
+                'price': float(row.get('close', 0)),
+                'change_pct': 0.0,  # basic接口不提供涨跌幅
+                'change_amount': 0.0,
+                'volume_ratio': float(row.get('volume_ratio', 0)),
+                'turnover_rate': float(row.get('turnover_rate', 0)),
+                'amplitude': 0.0,  # basic接口不提供振幅
+                'pe_ratio': float(row.get('pe', 0)),
+                'pb_ratio': float(row.get('pb', 0)),
+                'total_mv': float(row.get('total_mv', 0)) * 10000,  # 转换为元（Tushare单位是万元）
+                'circulation_mv': float(row.get('circ_mv', 0)) * 10000,  # 转换为元
+            }
+
+            logger.info(f"[实时行情] {stock_code}: 价格={quote_data['price']}, PE={quote_data['pe_ratio']}")
+            return quote_data
+
+        except Exception as e:
+            logger.error(f"[API错误] 获取 {stock_code} Tushare实时行情失败: {e}")
+            return None
+
+    def get_fundamental_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取基本面数据（Tushare Pro）
+
+        使用 daily_basic 和 fina_indicator 接口获取基本面数据
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            包含基本面指标的字典
+        """
+        if self._api is None:
+            logger.warning("Tushare API 未初始化，无法获取基本面数据")
+            return {}
+
+        try:
+            # 速率限制检查
+            self._check_rate_limit()
+
+            # 转换代码格式
+            ts_code = self._convert_stock_code(stock_code)
+
+            logger.info(f"[API调用] Tushare 获取 {stock_code} 基本面数据...")
+
+            # 获取最新的基本面数据
+            basic_df = self._api.daily_basic(ts_code=ts_code, fields='ts_code,trade_date,pe,pb,total_mv,circ_mv')
+
+            fundamental_data = {
+                'pe_ratio': 0.0,
+                'pb_ratio': 0.0,
+                'total_mv': 0.0,
+                'circ_mv': 0.0,
+                'roe': 0.0,
+                'revenue_growth': 0.0,
+            }
+
+            if not basic_df.empty:
+                latest = basic_df.iloc[0]
+                fundamental_data.update(
+                    {
+                        'pe_ratio': float(latest.get('pe', 0)),
+                        'pb_ratio': float(latest.get('pb', 0)),
+                        'total_mv': float(latest.get('total_mv', 0)) * 10000,  # 万元转元
+                        'circ_mv': float(latest.get('circ_mv', 0)) * 10000,
+                    }
+                )
+
+            # 尝试获取财务指标（ROE等）
+            try:
+                # 速率限制检查
+                self._check_rate_limit()
+
+                # 获取最新年报的财务指标
+                current_year = datetime.now().year
+                fina_df = self._api.fina_indicator(
+                    ts_code=ts_code,
+                    period=f'{current_year}1231',  # 最新年报
+                    fields='ts_code,end_date,roe,or_yoy',  # ROE和营收增长率
+                )
+
+                if not fina_df.empty:
+                    fina_row = fina_df.iloc[0]
+                    fundamental_data.update(
+                        {
+                            'roe': float(fina_row.get('roe', 0)),
+                            'revenue_growth': float(fina_row.get('or_yoy', 0)),
+                        }
+                    )
+
+            except Exception as e:
+                logger.debug(f"获取 {stock_code} 财务指标失败: {e}")
+
+            return fundamental_data
+
+        except Exception as e:
+            logger.error(f"[API错误] 获取股票 {stock_code} Tushare基本面数据失败: {e}")
+            return {}
+
+    def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
+        """
+        获取增强数据（历史K线 + 实时行情 + 基本面数据）
+
+        Args:
+            stock_code: 股票代码
+            days: 历史数据天数
+
+        Returns:
+            包含所有数据的字典
+        """
+        result = {
+            'code': stock_code,
+            'daily_data': None,
+            'realtime_quote': None,
+            'fundamental_data': None,
+        }
+
+        # 获取日线数据
+        try:
+            df = self.get_daily_data(stock_code, days=days)
+            result['daily_data'] = df
+        except Exception as e:
+            logger.error(f"获取 {stock_code} Tushare日线数据失败: {e}")
+
+        # 获取实时行情
+        result['realtime_quote'] = self.get_realtime_quote(stock_code)
+
+        # 获取基本面数据
+        result['fundamental_data'] = self.get_fundamental_data(stock_code)
+
+        return result
 
 
 if __name__ == "__main__":

@@ -24,5 +24,5 @@ line_length = 120
 skip = [".git", "__pycache__", ".env", "venv", ".venv"]
 
 [tool.bandit]
-exclude_dirs = ["tests", "test_*.py"]
-skips = ["B101"]  # assert 语句在测试中是允许的
+exclude_dirs = ["examples"]
+skips = ["B101"]  # assert 语句在演示中是允许的

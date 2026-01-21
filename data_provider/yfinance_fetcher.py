@@ -16,7 +16,7 @@ YfinanceFetcher - 兜底数据源 (Priority 4)
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import pandas as pd
 from tenacity import (
@@ -181,6 +181,147 @@ class YfinanceFetcher(BaseFetcher):
         df = df[existing_cols]
 
         return df
+
+    def get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取实时行情数据（Yahoo Finance）
+
+        使用 yfinance.Ticker.info 获取实时数据
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            实时行情数据字典，获取失败返回 None
+        """
+        try:
+            import yfinance as yf
+
+            # 转换代码格式
+            yf_code = self._convert_stock_code(stock_code)
+
+            logger.info(f"[API调用] Yahoo Finance 获取 {stock_code} 实时行情...")
+
+            # 创建 Ticker 对象
+            ticker = yf.Ticker(yf_code)
+
+            # 获取股票信息
+            info = ticker.info
+
+            if not info or 'regularMarketPrice' not in info:
+                logger.warning(f"[API返回] Yahoo Finance 未找到 {stock_code} 的实时数据")
+                return None
+
+            # 构造实时行情数据
+            quote_data = {
+                'code': stock_code,
+                'name': info.get('longName', info.get('shortName', f'股票{stock_code}')),
+                'price': float(info.get('regularMarketPrice', 0)),
+                'change_pct': float(info.get('regularMarketChangePercent', 0)) * 100,  # 转换为百分比
+                'change_amount': float(info.get('regularMarketChange', 0)),
+                'volume_ratio': 0.0,  # Yahoo Finance不直接提供量比
+                'turnover_rate': 0.0,  # Yahoo Finance不直接提供换手率
+                'amplitude': 0.0,  # 可以计算
+                'pe_ratio': float(info.get('trailingPE', 0)),
+                'pb_ratio': float(info.get('priceToBook', 0)),
+                'total_mv': float(info.get('marketCap', 0)),
+                'circulation_mv': float(info.get('floatShares', 0)) * float(info.get('regularMarketPrice', 0)),
+            }
+
+            # 计算振幅
+            day_high = float(info.get('regularMarketDayHigh', 0))
+            day_low = float(info.get('regularMarketDayLow', 0))
+            prev_close = float(info.get('regularMarketPreviousClose', 0))
+            if prev_close > 0:
+                quote_data['amplitude'] = (day_high - day_low) / prev_close * 100
+
+            logger.info(
+                f"[实时行情] {stock_code} {quote_data['name']}: 价格={quote_data['price']}, 涨跌幅={quote_data['change_pct']:.2f}%"
+            )
+            return quote_data
+
+        except Exception as e:
+            logger.error(f"[API错误] 获取 {stock_code} Yahoo Finance实时行情失败: {e}")
+            return None
+
+    def get_fundamental_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取基本面数据（Yahoo Finance）
+
+        使用 yfinance.Ticker.info 获取基本面数据
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            包含基本面指标的字典
+        """
+        try:
+            import yfinance as yf
+
+            # 转换代码格式
+            yf_code = self._convert_stock_code(stock_code)
+
+            logger.info(f"[API调用] Yahoo Finance 获取 {stock_code} 基本面数据...")
+
+            # 创建 Ticker 对象
+            ticker = yf.Ticker(yf_code)
+
+            # 获取股票信息
+            info = ticker.info
+
+            if not info:
+                logger.warning(f"[API返回] Yahoo Finance 未找到 {stock_code} 的基本面数据")
+                return {}
+
+            # 构建基本面数据字典
+            fundamental_data = {
+                'pe_ratio': float(info.get('trailingPE', 0)),
+                'pb_ratio': float(info.get('priceToBook', 0)),
+                'total_mv': float(info.get('marketCap', 0)),
+                'circ_mv': float(info.get('floatShares', 0)) * float(info.get('regularMarketPrice', 0)),
+                'roe': float(info.get('returnOnEquity', 0)) * 100,  # 转换为百分比
+                'revenue_growth': float(info.get('revenueGrowth', 0)) * 100,  # 转换为百分比
+            }
+
+            return fundamental_data
+
+        except Exception as e:
+            logger.error(f"[API错误] 获取股票 {stock_code} Yahoo Finance基本面数据失败: {e}")
+            return {}
+
+    def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
+        """
+        获取增强数据（历史K线 + 实时行情 + 基本面数据）
+
+        Args:
+            stock_code: 股票代码
+            days: 历史数据天数
+
+        Returns:
+            包含所有数据的字典
+        """
+        result = {
+            'code': stock_code,
+            'daily_data': None,
+            'realtime_quote': None,
+            'fundamental_data': None,
+        }
+
+        # 获取日线数据
+        try:
+            df = self.get_daily_data(stock_code, days=days)
+            result['daily_data'] = df
+        except Exception as e:
+            logger.error(f"获取 {stock_code} Yahoo Finance日线数据失败: {e}")
+
+        # 获取实时行情
+        result['realtime_quote'] = self.get_realtime_quote(stock_code)
+
+        # 获取基本面数据
+        result['fundamental_data'] = self.get_fundamental_data(stock_code)
+
+        return result
 
 
 if __name__ == "__main__":

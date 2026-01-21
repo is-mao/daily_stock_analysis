@@ -21,10 +21,6 @@ env/
 # logs/
 # reports/
 
-# 忽略测试文件
-test_*.py
-*_test.py
-
 # 忽略文档
 *.md
 !README.md

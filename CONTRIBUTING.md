@@ -99,7 +99,7 @@ isort .
 flake8 .
 
 # 安全扫描
-bandit -r . -x ./test_*.py
+bandit -r . --exclude ./demo_*.py
 ```
 
 ## 📋 优先贡献方向

@@ -18,7 +18,14 @@ on:
           - market-only   # 仅大盘复盘
           - stocks-only   # 仅股票分析
           - selection-only # 仅股票精选（标准模式，~200只股票，20-40分钟）
-          - quickly-selection-only # 快速股票精选（使用EFinance，~50只股票，5-10分钟）
+          - sina-selection-only # 新浪极速股票精选（~50只股票，2-5分钟）
+          - efinance-selection-only # EFinance快速股票精选（~50只股票，5-10分钟）
+          - tencent-selection-only # 腾讯极速股票精选（~50只股票，3-5分钟）
+          - tonghuashun-selection-only # 同花顺快速股票精选（~50只股票，5-8分钟）
+          - akshare-selection-only # AkShare标准股票精选（~100只股票，10-15分钟）
+          - tushare-selection-only # Tushare专业股票精选（~100只股票，15-20分钟，需Token）
+          - baostock-selection-only # Baostock稳定股票精选（~100只股票，10-15分钟）
+          - yfinance-selection-only # Yahoo Finance国际股票精选（~100只股票，15-20分钟）
 
 jobs:
   analyze:
@@ -109,8 +116,22 @@ jobs:
             python main.py --no-market-review
           elif [ "$MODE" = "selection-only" ]; then
             python main.py --stock-selection
-          elif [ "$MODE" = "quickly-selection-only" ]; then
+          elif [ "$MODE" = "sina-selection-only" ]; then
+            python main.py --stock-selection --data-source sina --selection-count 10 --selection-strategy momentum
+          elif [ "$MODE" = "efinance-selection-only" ]; then
             python main.py --stock-selection --data-source efinance --selection-count 10 --selection-strategy trend_following
+          elif [ "$MODE" = "tencent-selection-only" ]; then
+            python main.py --stock-selection --data-source tencent --selection-count 10 --selection-strategy momentum
+          elif [ "$MODE" = "tonghuashun-selection-only" ]; then
+            python main.py --stock-selection --data-source tonghuashun --selection-count 10 --selection-strategy comprehensive
+          elif [ "$MODE" = "akshare-selection-only" ]; then
+            python main.py --stock-selection --data-source akshare --selection-count 15 --selection-strategy comprehensive
+          elif [ "$MODE" = "tushare-selection-only" ]; then
+            python main.py --stock-selection --data-source tushare --selection-count 15 --selection-strategy value_hunting
+          elif [ "$MODE" = "baostock-selection-only" ]; then
+            python main.py --stock-selection --data-source baostock --selection-count 15 --selection-strategy trend_following
+          elif [ "$MODE" = "yfinance-selection-only" ]; then
+            python main.py --stock-selection --data-source yfinance --selection-count 15 --selection-strategy comprehensive
           else
             python main.py
           fi

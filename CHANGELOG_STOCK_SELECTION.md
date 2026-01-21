@@ -65,7 +65,7 @@ python main.py --stock-selection --data-source akshare
 
 #### 🎯 二次筛选：可操作股票推荐
 - **新增逻辑**: 在精选结果基础上，再次筛选出可直接操作的股票
-- **过滤规则**: 排除创业板(300开头)和科创板(688开头)股票
+- **过滤规则**: 排除创业板(300/301开头)、科创板(688开头)和存托凭证(920开头)股票
 - **推荐数量**: 前20只可操作股票
 - **通知优化**: 在推送消息中突出显示可操作股票
 
@@ -75,7 +75,7 @@ python main.py --stock-selection --data-source akshare
 原始股票池(200-400只) 
     ↓ 多维度评分筛选
 精选股票(20只) 
-    ↓ 二次筛选(排除300/688)
+    ↓ 二次筛选(排除300/301/688/920)
 可操作股票(前20只)
 ```
 
@@ -84,7 +84,7 @@ python main.py --stock-selection --data-source akshare
 #### 新增方法
 ```python
 def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[StockScore]:
-    """二次筛选：过滤掉创业板(300)和科创板(688)股票"""
+    """二次筛选：过滤掉创业板(300/301)、科创板(688)和存托凭证(920)股票"""
 ```
 
 #### 报告格式优化
@@ -101,7 +101,7 @@ def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[St
 
 #### 报告示例
 ```markdown
-## 🎯 可操作股票推荐 (前20只，已排除创业板300/科创板688)
+## 🎯 可操作股票推荐 (前20只，已排除创业板300/301/科创板688/存托凭证920)
 
 *以下股票可直接操作，无需担心交易限制*
 

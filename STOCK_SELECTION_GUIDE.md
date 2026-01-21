@@ -1,12 +1,13 @@
-# 📈 每日股票精选功能使用指南 - 优化版
+# 📊 每日股票精选功能使用指南 - 优化版
 
 ## 🎯 功能概述
 
 每日股票精选功能是在原有股票分析系统基础上新增的功能，能够从热点板块中自动筛选出值得关注的优质股票，并提供多维度评分和操作建议。
 
-**🚀 2.0版本优化**：
+**🚀 3.0版本优化**：
+- **新增腾讯数据源**：速度极快，延迟极低的腾讯官方接口
+- **三种速度模式**：标准模式(20-40分钟) / EFinance快速模式(5-10分钟) / 腾讯极速模式(3-5分钟)
 - **智能股票池**：只分析前20个热点板块，每个板块前20只股票
-- **运行时间**：从4小时缩短至30-60分钟
 - **精选质量**：聚焦热点板块，提高精选股票的市场关注度
 
 ## ✨ 核心特性
@@ -48,6 +49,23 @@
 
 1. **综合策略** (默认)：多维度综合评分
 2. **趋势跟踪**：多头排列 + 突破
+
+### 📋 股票筛选规则
+
+#### 包含范围
+- **沪市主板**：600xxx, 601xxx, 603xxx, 605xxx
+- **深市主板**：000xxx  
+- **中小板**：002xxx
+
+#### 排除范围（可操作股票推荐中）
+- **创业板**：300xxx, 301xxx（交易门槛高，风险较大）
+- **科创板**：688xxx（交易门槛高，风险较大）
+- **ST股票**：风险警示股票
+- **停牌股票**：无法正常交易
+
+> 💡 **说明**：系统会生成两个推荐列表
+> - **完整精选列表**：包含所有符合条件的股票
+> - **可操作股票推荐**：排除300/301/688开头的股票，适合普通投资者
 3. **价值挖掘**：低估值 + 基本面好
 4. **动量策略**：强势股 + 量价配合
 5. **反转策略**：超跌反弹 + 技术修复
@@ -57,8 +75,14 @@
 ### 命令行使用
 
 ```bash
-# 基础用法：运行股票精选
+# 基础用法：运行股票精选（标准模式）
 python main.py --stock-selection
+
+# 快速模式：使用EFinance数据源（5-10分钟）
+python main.py --stock-selection --data-source efinance --selection-count 10
+
+# 极速模式：使用腾讯数据源（3-5分钟）
+python main.py --stock-selection --data-source tencent --selection-count 10
 
 # 自定义精选数量（默认20只）
 python main.py --stock-selection --selection-count 30
@@ -73,6 +97,25 @@ python main.py --stock-selection --no-notify
 python main.py --stock-selection --debug
 ```
 
+### 数据源选择
+
+```bash
+# 自动选择（默认）- 按优先级自动切换
+python main.py --stock-selection --data-source auto
+
+# 腾讯数据源（最快，3-5分钟）
+python main.py --stock-selection --data-source tencent
+
+# 同花顺数据源（快速，5-8分钟）
+python main.py --stock-selection --data-source tonghuashun
+
+# EFinance数据源（快速，5-10分钟）
+python main.py --stock-selection --data-source efinance
+
+# AkShare数据源（标准，20-40分钟）
+python main.py --stock-selection --data-source akshare
+```
+
 ### 可用策略参数
 
 - `comprehensive`：综合策略（默认）
@@ -83,7 +126,12 @@ python main.py --stock-selection --debug
 
 ### GitHub Actions 使用
 
-在 GitHub Actions 中选择运行模式为 `selection-only` 即可运行股票精选功能。
+在 GitHub Actions 中选择运行模式：
+
+- `selection-only`：标准股票精选（20-40分钟）
+- `efinance-selection-only`：EFinance快速精选（5-10分钟）
+- `tencent-selection-only`：腾讯极速精选（3-5分钟）
+- `tonghuashun-selection-only`：同花顺快速精选（5-8分钟）
 
 ## 📱 输出示例
 
@@ -115,10 +163,13 @@ python main.py --stock-selection --debug
 
 ### 🚀 性能对比
 
-| 版本 | 股票池大小 | 运行时间 | 精选质量 | 说明 |
-|------|------------|----------|----------|------|
-| **1.0版本** | 全市场4000+只 | 3-4小时 | 全面但耗时 | 分析全市场所有股票 |
-| **2.0版本** | 热点板块200-400只 | 20-40分钟 | 聚焦热点 | 只分析前20个热点板块 |
+| 版本 | 数据源 | 股票池大小 | 运行时间 | 精选质量 | 说明 |
+|------|--------|------------|----------|----------|------|
+| **1.0版本** | AkShare | 全市场4000+只 | 3-4小时 | 全面但耗时 | 分析全市场所有股票 |
+| **2.0版本** | AkShare | 热点板块200-400只 | 20-40分钟 | 聚焦热点 | 只分析前20个热点板块 |
+| **3.0标准** | AkShare | 热点板块200-400只 | 20-40分钟 | 聚焦热点 | 标准模式，数据最全面 |
+| **3.0快速** | EFinance | 热点板块50只 | 5-10分钟 | 快速精选 | 使用EFinance数据源 |
+| **3.0极速** | 腾讯 | 热点板块50只 | 3-5分钟 | 极速精选 | 使用腾讯官方接口 |
 
 ### 筛选参数（可在代码中调整）
 

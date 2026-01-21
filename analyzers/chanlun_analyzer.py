@@ -128,7 +128,23 @@ class ChanLunAnalyzer:
             分析结果字典
         """
         try:
-            logger.info("开始缠论分析...")
+            # 数据验证
+            if df is None or df.empty:
+                logger.warning("缠论分析：输入数据为空")
+                return {}
+
+            if len(df) < 10:
+                logger.warning(f"缠论分析：数据量不足({len(df)}条)，至少需要10条")
+                return {}
+
+            # 检查必需的列
+            required_cols = ['date', 'open', 'high', 'low', 'close']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                logger.warning(f"缠论分析：缺少必需列: {missing_cols}")
+                return {}
+
+            logger.info(f"开始缠论分析，数据量: {len(df)} 条")
 
             # 1. 识别分型
             self.fenxings = self._identify_fenxings(df)

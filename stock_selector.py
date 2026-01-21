@@ -227,7 +227,11 @@ class StockSelector:
                     time.sleep(sleep_time)
 
                 except Exception as e:
-                    logger.error(f"获取板块 [{concept_name}] 股票失败: {e}")
+                    error_msg = str(e)
+                    if 'Connection' in error_msg or 'timeout' in error_msg.lower() or 'Remote end closed' in error_msg:
+                        logger.warning(f"获取板块 [{concept_name}] 股票时网络连接问题: {error_msg[:100]}")
+                    else:
+                        logger.error(f"获取板块 [{concept_name}] 股票失败: {e}")
                     continue
 
             # 去重
@@ -759,25 +763,49 @@ class StockSelector:
             logger.info(f"开始评估股票 {code}")
 
             # 获取历史数据（支持指定数据源）
-            if self.preferred_data_source == 'efinance':
-                # 使用EFinance数据源（最快）
-                from data_provider.efinance_fetcher import EfinanceFetcher
+            try:
+                if self.preferred_data_source == 'tencent':
+                    # 使用腾讯数据源（最快）
+                    from data_provider.tencent_fetcher import TencentFetcher
 
-                efinance_fetcher = EfinanceFetcher()
-                df = efinance_fetcher.get_daily_data(code, days=60)
-                source = "EfinanceFetcher"
-                logger.info(f"[{code}] 使用EFinance数据源获取数据")
-            elif self.preferred_data_source == 'akshare':
-                # 使用AkShare数据源
-                df = self.akshare_fetcher.get_daily_data(code, days=60)
-                source = "AkshareFetcher"
-                logger.info(f"[{code}] 使用AkShare数据源获取数据")
-            else:
-                # 使用默认的数据源管理器（自动选择）
-                df, source = self.fetcher_manager.get_daily_data(code, days=60)
+                    tencent_fetcher = TencentFetcher()
+                    df = tencent_fetcher.get_daily_data(code, days=60)
+                    source = "TencentFetcher"
+                    logger.info(f"[{code}] 使用腾讯数据源获取数据")
+                elif self.preferred_data_source == 'tonghuashun':
+                    # 使用同花顺数据源（快速）
+                    from data_provider.tonghuashun_fetcher import TonghuashunFetcher
+
+                    tonghuashun_fetcher = TonghuashunFetcher()
+                    df = tonghuashun_fetcher.get_daily_data(code, days=60)
+                    source = "TonghuashunFetcher"
+                    logger.info(f"[{code}] 使用同花顺数据源获取数据")
+                elif self.preferred_data_source == 'efinance':
+                    # 使用EFinance数据源（最快）
+                    from data_provider.efinance_fetcher import EfinanceFetcher
+
+                    efinance_fetcher = EfinanceFetcher()
+                    df = efinance_fetcher.get_daily_data(code, days=60)
+                    source = "EfinanceFetcher"
+                    logger.info(f"[{code}] 使用EFinance数据源获取数据")
+                elif self.preferred_data_source == 'akshare':
+                    # 使用AkShare数据源
+                    df = self.akshare_fetcher.get_daily_data(code, days=60)
+                    source = "AkshareFetcher"
+                    logger.info(f"[{code}] 使用AkShare数据源获取数据")
+                else:
+                    # 使用默认的数据源管理器（自动选择）
+                    df, source = self.fetcher_manager.get_daily_data(code, days=60)
+            except Exception as e:
+                error_msg = str(e)
+                if 'Connection' in error_msg or 'timeout' in error_msg.lower():
+                    logger.warning(f"[{code}] 数据获取网络超时，跳过: {error_msg[:100]}")
+                else:
+                    logger.warning(f"[{code}] 数据获取失败: {e}")
+                return None
 
             if df is None or len(df) < 30:
-                logger.warning(f"[{code}] 历史数据不足，跳过评估")
+                logger.warning(f"[{code}] 历史数据不足({len(df) if df is not None else 0}条)，跳过评估")
                 return None
 
             # 获取股票名称
@@ -874,7 +902,11 @@ class StockSelector:
             return stock_score
 
         except Exception as e:
-            logger.error(f"[{code}] 股票评估失败: {e}")
+            error_msg = str(e)
+            if 'Connection' in error_msg or 'timeout' in error_msg.lower():
+                logger.warning(f"[{code}] 网络连接问题，跳过评估: {error_msg[:100]}")
+            else:
+                logger.error(f"[{code}] 股票评估失败: {e}")
             return None
 
     def select_daily_stocks(
@@ -965,7 +997,7 @@ class StockSelector:
                     f"  {i+1}. {stock.name}({stock.code}): {stock.total_score:.1f}分 - {stock.recommend_level.value}"
                 )
 
-        # 二次筛选：过滤掉创业板(300)和科创板(688)，选出前20只可操作股票
+        # 二次筛选：过滤掉创业板(300/301)和科创板(688)，选出前20只可操作股票
         tradeable_stocks = self._filter_tradeable_stocks(result)
 
         # 将可操作股票信息添加到结果中，用于通知
@@ -1019,7 +1051,7 @@ class StockSelector:
 
     def _filter_tradeable_stocks(self, selected_stocks: List[StockScore]) -> List[StockScore]:
         """
-        二次筛选：过滤掉创业板(300)和科创板(688)股票，选出前20只可操作股票
+        二次筛选：过滤掉创业板(300/301)和科创板(688)股票，选出前20只可操作股票
 
         Args:
             selected_stocks: 初步精选的股票列表
@@ -1030,13 +1062,13 @@ class StockSelector:
         try:
             logger.info("开始二次筛选：过滤创业板和科创板股票...")
 
-            # 过滤掉创业板(300)和科创板(688)
+            # 过滤掉创业板(300/301)和科创板(688)
             tradeable_stocks = []
             filtered_out = []
 
             for stock in selected_stocks:
                 code = stock.code
-                if code.startswith('300') or code.startswith('688'):
+                if code.startswith('300') or code.startswith('301') or code.startswith('688'):
                     filtered_out.append(f"{stock.name}({code})")
                 else:
                     tradeable_stocks.append(stock)
@@ -1096,10 +1128,10 @@ class StockSelector:
         )
         report_lines.append("")
 
-        # 添加可操作股票专区（排除创业板300和科创板688）
+        # 添加可操作股票专区（排除创业板300/301和科创板688）
         tradeable_stocks = getattr(self, '_tradeable_stocks', [])
         if tradeable_stocks:
-            report_lines.append("## 🎯 可操作股票推荐 (前20只，已排除创业板300/科创板688)")
+            report_lines.append("## 🎯 可操作股票推荐 (前20只，已排除创业板300/301/科创板688)")
             report_lines.append("")
             report_lines.append("*以下股票可直接操作，无需担心交易限制*")
             report_lines.append("")

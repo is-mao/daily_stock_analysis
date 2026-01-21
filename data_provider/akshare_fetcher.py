@@ -300,9 +300,9 @@ class AkshareFetcher(BaseFetcher):
         self._last_request_time = time.time()
 
     @retry(
-        stop=stop_after_attempt(3),  # 最多重试3次
-        wait=wait_exponential(multiplier=1, min=2, max=30),  # 指数退避：2, 4, 8... 最大30秒
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        stop=stop_after_attempt(2),  # 减少重试次数，避免长时间等待
+        wait=wait_exponential(multiplier=1, min=3, max=15),  # 减少最大等待时间
+        retry=retry_if_exception_type((ConnectionError, TimeoutError, Exception)),  # 捕获更多异常类型
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:

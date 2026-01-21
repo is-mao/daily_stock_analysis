@@ -232,6 +232,154 @@ class BaostockFetcher(BaseFetcher):
 
         return df
 
+    def get_realtime_quote(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取实时行情数据（Baostock）
+
+        注意：Baostock 主要提供历史数据，实时数据通过最新日线数据模拟
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            实时行情数据字典，获取失败返回 None
+        """
+        try:
+            # 转换代码格式
+            bs_code = self._convert_stock_code(stock_code)
+
+            logger.info(f"[API调用] Baostock 获取 {stock_code} 最新行情...")
+
+            with self._baostock_session() as bs:
+                # 获取最近3天的数据（确保能获取到最新交易日）
+                from datetime import datetime, timedelta
+
+                end_date = datetime.now().strftime('%Y-%m-%d')
+                start_date = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
+
+                rs = bs.query_history_k_data_plus(
+                    code=bs_code,
+                    fields="date,open,high,low,close,volume,amount,pctChg",
+                    start_date=start_date,
+                    end_date=end_date,
+                    frequency="d",
+                    adjustflag="2",
+                )
+
+                if rs.error_code != '0':
+                    logger.warning(f"[API返回] Baostock 查询最新行情失败: {rs.error_msg}")
+                    return None
+
+                # 转换为 DataFrame 并取最新一条
+                data_list = []
+                while rs.next():
+                    data_list.append(rs.get_row_data())
+
+                if not data_list:
+                    logger.warning(f"[API返回] Baostock 未找到 {stock_code} 的最新数据")
+                    return None
+
+                df = pd.DataFrame(data_list, columns=rs.fields)
+
+                # 数值转换
+                numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pctChg']
+                for col in numeric_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+                # 取最新一条数据
+                latest = df.iloc[-1]
+
+                # 构造实时行情数据
+                quote_data = {
+                    'code': stock_code,
+                    'name': f'股票{stock_code}',  # Baostock不提供股票名称
+                    'price': float(latest.get('close', 0)),
+                    'change_pct': float(latest.get('pctChg', 0)),
+                    'change_amount': 0.0,  # 需要计算
+                    'volume_ratio': 0.0,  # Baostock不提供量比
+                    'turnover_rate': 0.0,  # Baostock不提供换手率
+                    'amplitude': 0.0,  # 可以计算
+                    'pe_ratio': 0.0,  # Baostock不提供PE
+                    'pb_ratio': 0.0,  # Baostock不提供PB
+                    'total_mv': 0.0,  # Baostock不提供市值
+                    'circulation_mv': 0.0,
+                }
+
+                # 计算振幅
+                high = float(latest.get('high', 0))
+                low = float(latest.get('low', 0))
+                pre_close = quote_data['price'] / (1 + quote_data['change_pct'] / 100)
+                if pre_close > 0:
+                    quote_data['amplitude'] = (high - low) / pre_close * 100
+                    quote_data['change_amount'] = quote_data['price'] - pre_close
+
+                logger.info(f"[实时行情] {stock_code}: 价格={quote_data['price']}, 涨跌幅={quote_data['change_pct']}%")
+                return quote_data
+
+        except Exception as e:
+            logger.error(f"[API错误] 获取 {stock_code} Baostock实时行情失败: {e}")
+            return None
+
+    def get_fundamental_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取基本面数据（Baostock）
+
+        注意：Baostock 不提供详细的基本面数据，返回默认值
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            包含基本面指标的字典（大部分为默认值）
+        """
+        logger.debug(f"Baostock 不提供详细基本面数据，返回默认值")
+
+        # Baostock 主要提供历史价格数据，基本面数据有限
+        fundamental_data = {
+            'pe_ratio': 0.0,  # Baostock不提供
+            'pb_ratio': 0.0,  # Baostock不提供
+            'total_mv': 0.0,  # Baostock不提供
+            'circ_mv': 0.0,  # Baostock不提供
+            'roe': 0.0,  # Baostock不提供
+            'revenue_growth': 0.0,  # Baostock不提供
+        }
+
+        return fundamental_data
+
+    def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
+        """
+        获取增强数据（历史K线 + 实时行情）
+
+        Args:
+            stock_code: 股票代码
+            days: 历史数据天数
+
+        Returns:
+            包含所有数据的字典
+        """
+        result = {
+            'code': stock_code,
+            'daily_data': None,
+            'realtime_quote': None,
+            'fundamental_data': None,
+        }
+
+        # 获取日线数据
+        try:
+            df = self.get_daily_data(stock_code, days=days)
+            result['daily_data'] = df
+        except Exception as e:
+            logger.error(f"获取 {stock_code} Baostock日线数据失败: {e}")
+
+        # 获取实时行情
+        result['realtime_quote'] = self.get_realtime_quote(stock_code)
+
+        # 获取基本面数据
+        result['fundamental_data'] = self.get_fundamental_data(stock_code)
+
+        return result
+
 
 if __name__ == "__main__":
     # 测试代码

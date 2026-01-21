@@ -158,6 +158,49 @@ class StockAnalysisPipeline:
         else:
             logger.warning("搜索服务未启用（未配置 API Key）")
 
+    def _get_realtime_quote_unified(self, stock_code: str) -> Optional[RealtimeQuote]:
+        """
+        统一的实时行情获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            实时行情数据
+        """
+        try:
+            # 优先使用数据源管理器
+            fetcher_manager = self.fetcher_manager
+            if hasattr(fetcher_manager, 'get_realtime_quote'):
+                quote = fetcher_manager.get_realtime_quote(stock_code)
+                if quote:
+                    return quote
+
+            # 备选：使用AkShare
+            return self.akshare_fetcher.get_realtime_quote(stock_code)
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取实时行情失败: {e}")
+            return None
+
+    def _get_chip_distribution_unified(self, stock_code: str) -> Optional[ChipDistribution]:
+        """
+        统一的筹码分布获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            筹码分布数据
+        """
+        try:
+            # 筹码分布目前只有AkShare提供
+            return self.akshare_fetcher.get_chip_distribution(stock_code)
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取筹码分布失败: {e}")
+            return None
+
     def fetch_and_save_stock_data(self, code: str, force_refresh: bool = False) -> Tuple[bool, Optional[str]]:
         """
         获取并保存单只股票数据
@@ -225,7 +268,8 @@ class StockAnalysisPipeline:
             # Step 1: 获取实时行情（量比、换手率等）
             realtime_quote: Optional[RealtimeQuote] = None
             try:
-                realtime_quote = self.akshare_fetcher.get_realtime_quote(code)
+                # 使用统一的数据获取方法
+                realtime_quote = self._get_realtime_quote_unified(code)
                 if realtime_quote:
                     # 使用实时行情返回的真实股票名称
                     if realtime_quote.name:
@@ -244,7 +288,8 @@ class StockAnalysisPipeline:
             # Step 2: 获取筹码分布
             chip_data: Optional[ChipDistribution] = None
             try:
-                chip_data = self.akshare_fetcher.get_chip_distribution(code)
+                # 使用统一的数据获取方法
+                chip_data = self._get_chip_distribution_unified(code)
                 if chip_data:
                     logger.info(
                         f"[{code}] 筹码分布: 获利比例={chip_data.profit_ratio:.1%}, "

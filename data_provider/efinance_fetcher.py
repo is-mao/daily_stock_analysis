@@ -583,6 +583,38 @@ class EfinanceFetcher(BaseFetcher):
             logger.error(f"[API错误] 获取 {stock_code} 所属板块失败: {e}")
             return None
 
+    def get_fundamental_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        获取基本面数据（从实时行情构造）
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            包含基本面指标的字典
+        """
+        try:
+            # 从实时行情获取估值指标
+            quote = self.get_realtime_quote(stock_code)
+            if not quote:
+                return {}
+
+            # 构建基本面数据字典
+            fundamental_data = {
+                'pe_ratio': getattr(quote, 'pe_ratio', 0.0),
+                'pb_ratio': getattr(quote, 'pb_ratio', 0.0),
+                'total_mv': getattr(quote, 'total_mv', 0.0),
+                'circ_mv': getattr(quote, 'circulation_mv', 0.0),
+                'roe': 0.0,  # EFinance API不直接提供ROE
+                'revenue_growth': 0.0,  # EFinance API不直接提供营收增长率
+            }
+
+            return fundamental_data
+
+        except Exception as e:
+            logger.error(f"[API错误] 获取股票 {stock_code} 基本面数据失败: {e}")
+            return {}
+
     def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
         """
         获取增强数据（历史K线 + 实时行情 + 基本信息）

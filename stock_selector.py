@@ -127,11 +127,13 @@ class StockSelector:
         self.config = config or get_config()
         self.db = get_db()
         self.fetcher_manager = DataFetcherManager()
-        self.akshare_fetcher = AkshareFetcher()
         self.analyzer = GeminiAnalyzer()
 
         # 数据源配置
         self.preferred_data_source = 'auto'  # 默认自动选择
+
+        # 创建备用的AkShare实例（仅在其他数据源都失败时使用）
+        self._akshare_fetcher = AkshareFetcher()
 
         # 快速模式配置
         self.fast_mode = fast_mode
@@ -145,6 +147,143 @@ class StockSelector:
         self.min_volume_ratio = 1.2  # 最小量比
 
         logger.info("股票精选器初始化完成")
+
+    def _get_preferred_fetcher(self):
+        """
+        根据preferred_data_source获取对应的数据源实例
+
+        Returns:
+            对应的数据源实例
+        """
+        if self.preferred_data_source == 'sina':
+            from data_provider.sina_fetcher import SinaFetcher
+
+            return SinaFetcher()
+        elif self.preferred_data_source == 'tencent':
+            from data_provider.tencent_fetcher import TencentFetcher
+
+            return TencentFetcher()
+        elif self.preferred_data_source == 'tonghuashun':
+            from data_provider.tonghuashun_fetcher import TonghuashunFetcher
+
+            return TonghuashunFetcher()
+        elif self.preferred_data_source == 'efinance':
+            from data_provider.efinance_fetcher import EfinanceFetcher
+
+            return EfinanceFetcher()
+        elif self.preferred_data_source == 'akshare':
+            return self._akshare_fetcher
+        elif self.preferred_data_source == 'tushare':
+            from data_provider.tushare_fetcher import TushareFetcher
+
+            return TushareFetcher()
+        elif self.preferred_data_source == 'baostock':
+            from data_provider.baostock_fetcher import BaostockFetcher
+
+            return BaostockFetcher()
+        elif self.preferred_data_source == 'yfinance':
+            from data_provider.yfinance_fetcher import YfinanceFetcher
+
+            return YfinanceFetcher()
+        else:
+            # 默认使用数据源管理器
+            return None
+
+    def _get_realtime_quote(self, stock_code: str):
+        """
+        统一的实时行情获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            实时行情数据
+        """
+        try:
+            # 优先使用指定的数据源
+            preferred_fetcher = self._get_preferred_fetcher()
+            if preferred_fetcher and hasattr(preferred_fetcher, 'get_realtime_quote'):
+                quote = preferred_fetcher.get_realtime_quote(stock_code)
+                if quote:
+                    logger.debug(f"[{stock_code}] 使用 {preferred_fetcher.name} 获取实时行情成功")
+                    return quote
+
+            # 备选：使用AkShare
+            logger.debug(f"[{stock_code}] 使用备选AkShare获取实时行情")
+            return self._akshare_fetcher.get_realtime_quote(stock_code)
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取实时行情失败: {e}")
+            return None
+
+    def _get_stock_name(self, stock_code: str) -> str:
+        """
+        统一的股票名称获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            股票名称
+        """
+        try:
+            # 优先从实时行情获取
+            quote = self._get_realtime_quote(stock_code)
+            if quote and hasattr(quote, 'name') and quote.name:
+                return quote.name
+
+            # 备选：使用AkShare
+            return self._akshare_fetcher.get_stock_name(stock_code) or f"股票{stock_code}"
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取股票名称失败: {e}")
+            return f"股票{stock_code}"
+
+    def _get_fundamental_data(self, stock_code: str) -> Dict[str, Any]:
+        """
+        统一的基本面数据获取方法
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            基本面数据字典
+        """
+        try:
+            # 优先使用指定的数据源
+            preferred_fetcher = self._get_preferred_fetcher()
+            if preferred_fetcher and hasattr(preferred_fetcher, 'get_fundamental_data'):
+                data = preferred_fetcher.get_fundamental_data(stock_code)
+                if data:
+                    logger.debug(f"[{stock_code}] 使用 {preferred_fetcher.name} 获取基本面数据成功")
+                    return data
+
+            # 对于没有基本面数据的数据源（如新浪），尝试从实时行情构造基本面数据
+            if preferred_fetcher and hasattr(preferred_fetcher, 'get_realtime_quote'):
+                try:
+                    quote = preferred_fetcher.get_realtime_quote(stock_code)
+                    if quote:
+                        # 从实时行情构造基本面数据
+                        fundamental_data = {
+                            'pe_ratio': getattr(quote, 'pe_ratio', 0.0),
+                            'pb_ratio': getattr(quote, 'pb_ratio', 0.0),
+                            'total_mv': getattr(quote, 'total_mv', 0.0),
+                            'circ_mv': getattr(quote, 'circulation_mv', 0.0),
+                            'roe': 0.0,  # 新浪API不提供ROE
+                            'revenue_growth': 0.0,  # 新浪API不提供营收增长率
+                        }
+                        logger.debug(f"[{stock_code}] 使用 {preferred_fetcher.name} 实时行情构造基本面数据")
+                        return fundamental_data
+                except Exception as e:
+                    logger.debug(f"[{stock_code}] 从实时行情构造基本面数据失败: {e}")
+
+            # 备选：使用AkShare
+            logger.debug(f"[{stock_code}] 使用备选AkShare获取基本面数据")
+            return self._akshare_fetcher.get_fundamental_data(stock_code)
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取基本面数据失败: {e}")
+            return {}
 
     def get_stock_pool(self) -> List[str]:
         """
@@ -599,8 +738,8 @@ class StockSelector:
             Tuple[基本面评分, 详细指标]
         """
         try:
-            # 获取基本面数据
-            fundamental_data = self.akshare_fetcher.get_fundamental_data(code)
+            # 获取基本面数据 - 使用统一数据获取方法
+            fundamental_data = self._get_fundamental_data(code)
             if not fundamental_data:
                 return 50.0, {}  # 默认中性评分
 
@@ -706,7 +845,7 @@ class StockSelector:
 
             # 2. 获取实时数据补充流动性指标
             try:
-                realtime_quote = self.akshare_fetcher.get_realtime_quote(code)
+                realtime_quote = self._get_realtime_quote(code)
                 if realtime_quote:
                     turnover_rate = realtime_quote.turnover_rate
                     volume_ratio = realtime_quote.volume_ratio
@@ -798,9 +937,33 @@ class StockSelector:
                     logger.info(f"[{code}] 使用EFinance数据源获取数据")
                 elif self.preferred_data_source == 'akshare':
                     # 使用AkShare数据源
-                    df = self.akshare_fetcher.get_daily_data(code, days=60)
+                    df = self._akshare_fetcher.get_daily_data(code, days=60)
                     source = "AkshareFetcher"
                     logger.info(f"[{code}] 使用AkShare数据源获取数据")
+                elif self.preferred_data_source == 'tushare':
+                    # 使用Tushare数据源（专业）
+                    from data_provider.tushare_fetcher import TushareFetcher
+
+                    tushare_fetcher = TushareFetcher()
+                    df = tushare_fetcher.get_daily_data(code, days=60)
+                    source = "TushareFetcher"
+                    logger.info(f"[{code}] 使用Tushare数据源获取数据")
+                elif self.preferred_data_source == 'baostock':
+                    # 使用Baostock数据源（稳定）
+                    from data_provider.baostock_fetcher import BaostockFetcher
+
+                    baostock_fetcher = BaostockFetcher()
+                    df = baostock_fetcher.get_daily_data(code, days=60)
+                    source = "BaostockFetcher"
+                    logger.info(f"[{code}] 使用Baostock数据源获取数据")
+                elif self.preferred_data_source == 'yfinance':
+                    # 使用Yahoo Finance数据源（国际）
+                    from data_provider.yfinance_fetcher import YfinanceFetcher
+
+                    yfinance_fetcher = YfinanceFetcher()
+                    df = yfinance_fetcher.get_daily_data(code, days=60)
+                    source = "YfinanceFetcher"
+                    logger.info(f"[{code}] 使用Yahoo Finance数据源获取数据")
                 else:
                     # 使用默认的数据源管理器（自动选择）
                     df, source = self.fetcher_manager.get_daily_data(code, days=60)
@@ -817,7 +980,7 @@ class StockSelector:
                 return None
 
             # 获取股票名称
-            stock_name = self.akshare_fetcher.get_stock_name(code)
+            stock_name = self._get_stock_name(code)
             if not stock_name:
                 stock_name = f"股票{code}"
 
@@ -1035,7 +1198,7 @@ class StockSelector:
             for code in stock_codes:
                 try:
                     # 获取实时行情（包含市值信息）
-                    quote = self.akshare_fetcher.get_realtime_quote(code)
+                    quote = self._get_realtime_quote(code)
                     if quote and quote.total_mv > 0:
                         # 市值范围：50亿-5000亿
                         market_cap_billion = quote.total_mv / 1e8  # 转换为亿元

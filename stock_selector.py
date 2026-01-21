@@ -764,7 +764,15 @@ class StockSelector:
 
             # 获取历史数据（支持指定数据源）
             try:
-                if self.preferred_data_source == 'tencent':
+                if self.preferred_data_source == 'sina':
+                    # 使用新浪数据源（极速）
+                    from data_provider.sina_fetcher import SinaFetcher
+
+                    sina_fetcher = SinaFetcher()
+                    df = sina_fetcher.get_daily_data(code, days=60)
+                    source = "SinaFetcher"
+                    logger.info(f"[{code}] 使用新浪数据源获取数据")
+                elif self.preferred_data_source == 'tencent':
                     # 使用腾讯数据源（最快）
                     from data_provider.tencent_fetcher import TencentFetcher
 

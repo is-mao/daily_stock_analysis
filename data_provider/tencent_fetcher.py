@@ -10,7 +10,7 @@ TencentFetcher - 超快数据源 (Priority 0)
 
 接口说明：
 - 实时行情：http://qt.gtimg.cn/q=sz000858
-- 资金流向：http://qt.gtimg.cn/q=ff_sz000858  
+- 资金流向：http://qt.gtimg.cn/q=ff_sz000858
 - 盘口分析：http://qt.gtimg.cn/q=s_pksz000858
 - 简要信息：http://qt.gtimg.cn/q=s_sz000858
 
@@ -48,6 +48,7 @@ class TencentRealtimeQuote:
 
     包含当日实时交易数据和估值指标
     """
+
     code: str
     name: str = ""
     price: float = 0.0  # 最新价
@@ -242,6 +243,7 @@ class TencentFetcher(BaseFetcher):
 
         try:
             import time as _time
+
             api_start = _time.time()
 
             # 调用腾讯实时行情API
@@ -346,7 +348,7 @@ class TencentFetcher(BaseFetcher):
             # 检查缓存
             current_time = time.time()
             cache_key = stock_code
-            
+
             if (
                 cache_key in _realtime_cache['data']
                 and current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']
@@ -364,6 +366,7 @@ class TencentFetcher(BaseFetcher):
 
             logger.info(f"[API调用] 腾讯实时行情: {tencent_code}")
             import time as _time
+
             api_start = _time.time()
 
             # 调用腾讯实时行情API
@@ -439,7 +442,7 @@ class TencentFetcher(BaseFetcher):
                 pre_close=pre_close,
                 pe_ratio=pe_ratio,
                 pb_ratio=0.0,  # 腾讯API不直接提供PB
-                total_mv=0.0,   # 需要额外计算
+                total_mv=0.0,  # 需要额外计算
                 circulation_mv=0.0,  # 需要额外计算
             )
 

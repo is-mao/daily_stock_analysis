@@ -18,6 +18,7 @@ on:
           - market-only   # 仅大盘复盘
           - stocks-only   # 仅股票分析
           - selection-only # 仅股票精选（标准模式，~200只股票，20-40分钟）
+          - sina-selection-only # 新浪极速股票精选（~50只股票，2-5分钟）
           - efinance-selection-only # EFinance快速股票精选（~50只股票，5-10分钟）
           - tencent-selection-only # 腾讯极速股票精选（~50只股票，3-5分钟）
           - tonghuashun-selection-only # 同花顺快速股票精选（~50只股票，5-8分钟）
@@ -111,6 +112,8 @@ jobs:
             python main.py --no-market-review
           elif [ "$MODE" = "selection-only" ]; then
             python main.py --stock-selection
+          elif [ "$MODE" = "sina-selection-only" ]; then
+            python main.py --stock-selection --data-source sina --selection-count 10 --selection-strategy momentum
           elif [ "$MODE" = "efinance-selection-only" ]; then
             python main.py --stock-selection --data-source efinance --selection-count 10 --selection-strategy trend_following
           elif [ "$MODE" = "tencent-selection-only" ]; then

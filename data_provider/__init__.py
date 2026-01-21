@@ -10,6 +10,7 @@
 3. 防封禁流控策略
 
 数据源优先级：
+0.1. SinaFetcher (Priority 0.1) - 极速数据源，新浪财经API
 0. TencentFetcher (Priority 0) - 最高优先级，专门用于快速模式
 0.5. TonghuashunFetcher (Priority 0.5) - 同花顺数据源，与腾讯并列
 1. AkshareFetcher (Priority 1) - 默认数据源
@@ -20,6 +21,7 @@
 """
 
 from .base import BaseFetcher, DataFetcherManager
+from .sina_fetcher import SinaFetcher
 from .tencent_fetcher import TencentFetcher
 from .tonghuashun_fetcher import TonghuashunFetcher
 from .efinance_fetcher import EfinanceFetcher
@@ -31,6 +33,7 @@ from .yfinance_fetcher import YfinanceFetcher
 __all__ = [
     'BaseFetcher',
     'DataFetcherManager',
+    'SinaFetcher',
     'TencentFetcher',
     'TonghuashunFetcher',
     'EfinanceFetcher',

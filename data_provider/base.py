@@ -261,6 +261,7 @@ class DataFetcherManager:
         初始化默认数据源列表
 
         按优先级排序：
+        0.1. SinaFetcher (Priority 0.1) - 极速数据源，新浪财经API
         0. TencentFetcher (Priority 0) - 最高优先级，专门用于快速模式
         0.5. TonghuashunFetcher (Priority 0.5) - 同花顺数据源，与腾讯并列
         1. AkshareFetcher (Priority 1) - 默认数据源
@@ -269,6 +270,7 @@ class DataFetcherManager:
         4. YfinanceFetcher (Priority 4)
         5. EfinanceFetcher (Priority 5) - 仅在明确指定时使用
         """
+        from .sina_fetcher import SinaFetcher
         from .tencent_fetcher import TencentFetcher
         from .tonghuashun_fetcher import TonghuashunFetcher
         from .efinance_fetcher import EfinanceFetcher
@@ -278,13 +280,14 @@ class DataFetcherManager:
         from .yfinance_fetcher import YfinanceFetcher
 
         self._fetchers = [
+            SinaFetcher(),  # 极速数据源，新浪财经API
             TencentFetcher(),  # 最高优先级，专门用于快速模式
             TonghuashunFetcher(),  # 同花顺数据源，与腾讯并列
-            AkshareFetcher(),  # 默认数据源
             TushareFetcher(),
             BaostockFetcher(),
-            YfinanceFetcher(),
             EfinanceFetcher(),  # 较低优先级，仅在明确指定时使用
+            YfinanceFetcher(),
+            AkshareFetcher(),  # 最低优先级，避免网络问题
         ]
 
         # 按优先级排序

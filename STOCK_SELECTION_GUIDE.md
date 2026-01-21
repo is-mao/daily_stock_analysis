@@ -103,6 +103,9 @@ python main.py --stock-selection --debug
 # 自动选择（默认）- 按优先级自动切换
 python main.py --stock-selection --data-source auto
 
+# 新浪数据源（极速，2-5分钟）
+python main.py --stock-selection --data-source sina
+
 # 腾讯数据源（最快，3-5分钟）
 python main.py --stock-selection --data-source tencent
 
@@ -129,6 +132,7 @@ python main.py --stock-selection --data-source akshare
 在 GitHub Actions 中选择运行模式：
 
 - `selection-only`：标准股票精选（20-40分钟）
+- `sina-selection-only`：新浪极速精选（2-5分钟）
 - `efinance-selection-only`：EFinance快速精选（5-10分钟）
 - `tencent-selection-only`：腾讯极速精选（3-5分钟）
 - `tonghuashun-selection-only`：同花顺快速精选（5-8分钟）

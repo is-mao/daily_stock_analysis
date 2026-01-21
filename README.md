@@ -23,7 +23,7 @@
 - **🔄 多模型支持** - 支持 OpenAI 兼容 API（DeepSeek、通义千问等）作为备选
 
 ### 📊 数据来源
-- **行情数据**: 腾讯股票（最快）、同花顺（快速）、AkShare（免费）、EFinance、Tushare、Baostock、YFinance - **全部A股真实数据**
+- **行情数据**: 新浪财经（极速）、腾讯股票（最快）、同花顺（快速）、AkShare（免费）、EFinance、Tushare、Baostock、YFinance - **全部A股真实数据**
 - **新闻搜索**: Tavily、SerpAPI、Bocha
 - **AI 分析**: 
   - 主力：Google Gemini（gemini-3-flash-preview）—— [免费获取](https://aistudio.google.com/)
@@ -191,6 +191,7 @@ python main.py --stock-selection --selection-count 30 --selection-strategy trend
 
 # GitHub Actions 中选择运行模式：
 # - "selection-only": 标准股票精选（20-40分钟）
+# - "sina-selection-only": 新浪极速股票精选（2-5分钟）
 # - "efinance-selection-only": EFinance快速股票精选（5-10分钟）
 # - "tencent-selection-only": 腾讯极速股票精选（3-5分钟）
 # - "tonghuashun-selection-only": 同花顺快速股票精选（5-8分钟）
@@ -198,7 +199,7 @@ python main.py --stock-selection --selection-count 30 --selection-strategy trend
 
 **🚀 性能优化**：
 - **智能股票池**：只分析前20个热点板块，每个板块前20只股票（最多400只）
-- **四种速度模式**：标准模式(20-40分钟) / 同花顺快速模式(5-8分钟) / EFinance快速模式(5-10分钟) / 腾讯极速模式(3-5分钟)
+- **五种速度模式**：标准模式(20-40分钟) / 新浪极速模式(2-5分钟) / 腾讯极速模式(3-5分钟) / 同花顺快速模式(5-8分钟) / EFinance快速模式(5-10分钟)
 - **数据源选择**：支持腾讯股票、EFinance等高速数据源
 - **精选质量**：聚焦热点板块，提高精选股票的市场关注度
 

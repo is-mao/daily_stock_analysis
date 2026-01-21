@@ -693,6 +693,7 @@ def parse_arguments() -> argparse.Namespace:
   python main.py --market-review    # 仅运行大盘复盘
   python main.py --stock-selection  # 仅运行每日股票精选
   python main.py --stock-selection --selection-count 30 --selection-strategy trend_following  # 自定义精选参数
+  python main.py --stock-selection --data-source sina  # 使用新浪数据源（极速）
   python main.py --stock-selection --data-source tencent  # 使用腾讯数据源（最快）
   python main.py --stock-selection --data-source tonghuashun  # 使用同花顺数据源（快速）
   python main.py --stock-selection --data-source efinance  # 使用EFinance数据源（快速）
@@ -736,7 +737,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--data-source',
         type=str,
-        choices=['auto', 'tencent', 'tonghuashun', 'efinance', 'akshare', 'tushare', 'baostock', 'yfinance'],
+        choices=['auto', 'sina', 'tencent', 'tonghuashun', 'efinance', 'akshare', 'tushare', 'baostock', 'yfinance'],
         default='auto',
         help='指定数据源（默认自动选择）',
     )

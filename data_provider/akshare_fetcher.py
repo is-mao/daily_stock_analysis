@@ -247,7 +247,7 @@ class AkshareFetcher(BaseFetcher):
     """
 
     name = "AkshareFetcher"
-    priority = 1
+    priority = 10  # 降低优先级，避免网络问题
 
     def __init__(self, sleep_min: float = 2.0, sleep_max: float = 5.0):
         """
@@ -300,8 +300,8 @@ class AkshareFetcher(BaseFetcher):
         self._last_request_time = time.time()
 
     @retry(
-        stop=stop_after_attempt(2),  # 减少重试次数，避免长时间等待
-        wait=wait_exponential(multiplier=1, min=3, max=15),  # 减少最大等待时间
+        stop=stop_after_attempt(1),  # 减少重试次数，快速失败切换到其他数据源
+        wait=wait_exponential(multiplier=1, min=2, max=5),  # 减少等待时间
         retry=retry_if_exception_type((ConnectionError, TimeoutError, Exception)),  # 捕获更多异常类型
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )

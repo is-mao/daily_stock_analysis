@@ -88,7 +88,7 @@ class SinaRealtimeQuote:
             'amplitude': self.amplitude,
             'high': self.high,
             'low': self.low,
-            'open': self.open_price,
+            'open_price': self.open_price,  # 修正：使用正确的字段名
             'pre_close': self.pre_close,
             'pe_ratio': self.pe_ratio,
             'pb_ratio': self.pb_ratio,

@@ -58,6 +58,7 @@ class TencentRealtimeQuote:
     # 量价指标
     volume: int = 0  # 成交量
     amount: float = 0.0  # 成交额
+    volume_ratio: float = 0.0  # 量比（腾讯API不直接提供，设为默认值）
     turnover_rate: float = 0.0  # 换手率(%)
     amplitude: float = 0.0  # 振幅(%)
 
@@ -83,6 +84,7 @@ class TencentRealtimeQuote:
             'change_amount': self.change_amount,
             'volume': self.volume,
             'amount': self.amount,
+            'volume_ratio': self.volume_ratio,
             'turnover_rate': self.turnover_rate,
             'amplitude': self.amplitude,
             'high': self.high,

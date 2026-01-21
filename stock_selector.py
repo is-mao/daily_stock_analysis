@@ -606,21 +606,23 @@ class StockSelector:
             score = 0.0
             details = {'current_price': current_price, 'ma5': ma5, 'ma10': ma10, 'ma20': ma20, 'ma60': ma60}
 
-            # 1. 均线排列评分 (25分)
+            # 1. 均线排列评分 (25分) - 调整评分，更加宽松
             ma_score = 0
             if ma5 > ma10 > ma20:  # 多头排列
                 ma_score = 25
             elif ma5 > ma10:  # 短期多头
-                ma_score = 18
+                ma_score = 20
+            elif ma5 > ma20:  # 中期向好
+                ma_score = 15
             elif ma5 < ma10 < ma20:  # 空头排列
-                ma_score = 0
+                ma_score = 5
             else:  # 震荡
-                ma_score = 10
+                ma_score = 12
 
             score += ma_score
             details['ma_alignment'] = "多头排列" if ma5 > ma10 > ma20 else "震荡" if ma5 > ma10 else "空头排列"
 
-            # 2. 乖离率安全性 (20分)
+            # 2. 乖离率安全性 (20分) - 调整评分，更加宽松
             bias_ma5 = (current_price - ma5) / ma5 * 100
             bias_ma20 = (current_price - ma20) / ma20 * 100
 
@@ -628,17 +630,19 @@ class StockSelector:
             if -2 <= bias_ma5 <= 3:  # 乖离率安全区间
                 bias_score = 20
             elif -5 <= bias_ma5 <= 5:  # 可接受区间
+                bias_score = 16
+            elif -8 <= bias_ma5 <= 8:  # 较宽区间
                 bias_score = 12
-            elif bias_ma5 > 8:  # 严重偏离，追高风险
-                bias_score = 0
+            elif bias_ma5 > 10:  # 严重偏离，追高风险
+                bias_score = 5
             else:  # 超跌
-                bias_score = 8
+                bias_score = 10
 
             score += bias_score
             details['bias_ma5'] = bias_ma5
             details['bias_ma20'] = bias_ma20
 
-            # 3. 量能配合 (20分)
+            # 3. 量能配合 (20分) - 调整评分，更加宽松
             volume_ma5 = df['volume'].rolling(5).mean().iloc[-1]
             volume_ma20 = df['volume'].rolling(20).mean().iloc[-1]
             current_volume = latest['volume']
@@ -647,16 +651,18 @@ class StockSelector:
             if current_volume > volume_ma5 * 1.5:  # 明显放量
                 volume_score = 20
             elif current_volume > volume_ma5:  # 温和放量
-                volume_score = 16
+                volume_score = 18
             elif current_volume > volume_ma20 * 0.8:  # 正常量能
-                volume_score = 12
+                volume_score = 15
+            elif current_volume > volume_ma20 * 0.5:  # 量能偏弱但可接受
+                volume_score = 10
             else:  # 缩量
-                volume_score = 4
+                volume_score = 6
 
             score += volume_score
             details['volume_ratio_calc'] = current_volume / volume_ma5
 
-            # 4. K线形态 (15分)
+            # 4. K线形态 (15分) - 调整评分，更加宽松
             pattern_score = 0
             recent_5 = df.tail(5)
 
@@ -668,9 +674,12 @@ class StockSelector:
                 pattern_score = 12
             # 横盘整理
             elif abs(recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0] < 0.03:
+                pattern_score = 10
+            # 轻微下跌但可接受
+            elif recent_5['close'].iloc[-1] > recent_5['close'].iloc[0] * 0.95:
                 pattern_score = 8
             else:
-                pattern_score = 4
+                pattern_score = 5
 
             score += pattern_score
             details['pattern'] = "上涨趋势" if pattern_score >= 12 else "震荡" if pattern_score >= 8 else "下跌趋势"
@@ -748,7 +757,7 @@ class StockSelector:
             # 获取基本面数据 - 使用统一数据获取方法
             fundamental_data = self._get_fundamental_data(code)
             if not fundamental_data:
-                return 50.0, {}  # 默认中性评分
+                return 60.0, {}  # 提高默认中性评分，避免过于严格
 
             score = 0.0
             details = fundamental_data.copy()
@@ -758,47 +767,63 @@ class StockSelector:
             roe = fundamental_data.get('roe', 0)
             revenue_growth = fundamental_data.get('revenue_growth', 0)
 
-            # 1. 估值水平 (40分)
+            # 1. 估值水平 (40分) - 调整评分，更加宽松
             valuation_score = 0
-            if 0 < pe_ratio <= 15:  # 低估值
+            if pe_ratio == 0:  # 无PE数据，给中性分
+                valuation_score = 25
+            elif 0 < pe_ratio <= 15:  # 低估值
                 valuation_score = 40
             elif 15 < pe_ratio <= 25:  # 合理估值
-                valuation_score = 30
+                valuation_score = 35
             elif 25 < pe_ratio <= 40:  # 偏高估值
-                valuation_score = 20
-            elif pe_ratio > 40:  # 高估值
-                valuation_score = 10
+                valuation_score = 25
+            elif 40 < pe_ratio <= 60:  # 高估值但可接受
+                valuation_score = 15
+            else:  # 极高估值
+                valuation_score = 5
 
-            # PB修正
-            if 0 < pb_ratio <= 2:
+            # PB修正 - 调整逻辑
+            if pb_ratio == 0:  # 无PB数据，不扣分
+                pass
+            elif 0 < pb_ratio <= 2:
                 valuation_score += 5
             elif pb_ratio > 5:
-                valuation_score -= 5
+                valuation_score -= 3  # 减少扣分
 
             score += valuation_score
 
-            # 2. 盈利能力 (30分)
+            # 2. 盈利能力 (30分) - 调整评分，考虑无数据情况
             profitability_score = 0
-            if roe >= 15:  # 优秀
+            if roe == 0:  # 无ROE数据，给中性分
+                profitability_score = 18
+            elif roe >= 15:  # 优秀
                 profitability_score = 30
             elif roe >= 10:  # 良好
                 profitability_score = 25
             elif roe >= 5:  # 一般
-                profitability_score = 15
-            else:  # 较差
+                profitability_score = 18
+            elif roe >= 0:  # 较差但为正
+                profitability_score = 10
+            else:  # 负ROE
                 profitability_score = 5
 
             score += profitability_score
 
-            # 3. 成长性 (30分)
+            # 3. 成长性 (30分) - 调整评分，考虑无数据情况
             growth_score = 0
-            if revenue_growth >= 20:  # 高成长
+            if revenue_growth == 0:  # 无增长数据，给中性分
+                growth_score = 18
+            elif revenue_growth >= 20:  # 高成长
                 growth_score = 30
             elif revenue_growth >= 10:  # 稳定成长
                 growth_score = 25
+            elif revenue_growth >= 5:  # 温和成长
+                growth_score = 20
             elif revenue_growth >= 0:  # 正增长
                 growth_score = 15
-            else:  # 负增长
+            elif revenue_growth >= -5:  # 轻微负增长
+                growth_score = 10
+            else:  # 严重负增长
                 growth_score = 5
 
             score += growth_score
@@ -835,18 +860,22 @@ class StockSelector:
             score = 0.0
             details = {'daily_amount': daily_amount}
 
-            # 1. 成交额评分 (50分)
+            # 1. 成交额评分 (50分) - 调整阈值，更加宽松
             amount_score = 0
             if daily_amount >= 10e8:  # 10亿以上
                 amount_score = 50
             elif daily_amount >= 5e8:  # 5-10亿
-                amount_score = 40
+                amount_score = 45
             elif daily_amount >= 2e8:  # 2-5亿
-                amount_score = 30
+                amount_score = 40
             elif daily_amount >= 1e8:  # 1-2亿
-                amount_score = 20
-            else:  # 1亿以下
-                amount_score = 0
+                amount_score = 35
+            elif daily_amount >= 5e7:  # 5000万-1亿
+                amount_score = 25
+            elif daily_amount >= 2e7:  # 2000万-5000万
+                amount_score = 15
+            else:  # 2000万以下
+                amount_score = 5
 
             score += amount_score
 
@@ -1140,7 +1169,7 @@ class StockSelector:
                 logger.info(f"评估进度: {progress} - {code}")
 
                 stock_score = self.evaluate_stock(code)
-                if stock_score and stock_score.total_score >= 60:  # 只保留60分以上的股票
+                if stock_score and stock_score.total_score >= 50:  # 降低阈值到50分，更加合理
                     selected_stocks.append(stock_score)
                     logger.info(f"✅ {code} 入选，评分: {stock_score.total_score:.1f}")
                 else:

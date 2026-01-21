@@ -17,7 +17,7 @@ TushareFetcher - 备用数据源 1 (Priority 2)
 import logging
 import time
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
 import pandas as pd
 from tenacity import (

@@ -16,7 +16,7 @@ YfinanceFetcher - 兜底数据源 (Priority 4)
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import pandas as pd
 from tenacity import (

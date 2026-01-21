@@ -17,7 +17,7 @@ BaostockFetcher - 备用数据源 2 (Priority 3)
 import logging
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Optional, Generator
+from typing import Optional, Generator, Dict, Any
 
 import pandas as pd
 from tenacity import (
